@@ -1,3 +1,4 @@
+from dataclasses import Field
 import logging
 import time
 from typing import Dict, Optional
@@ -19,8 +20,8 @@ app = FastAPI()
 
 class CompleteRequest(BaseModel):
     bot_id: Optional[str] = 'botLawyer'
-    user_id: str
-    user_message: str
+    user_id: str = Field(..., min_length=1, max_length=100)
+    user_message: str = Field(..., min_length=1)
     sync_request: Optional[bool] = False
 
 
