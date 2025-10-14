@@ -21,12 +21,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # --- Use this if you have a custom local action for setting python env:
-      # - name: Set up Python environment (custom)
-      #   uses: ./.github/actions/setup-python-env
-      #   with:
-      #     python-version: ${{ matrix.python-version }}
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -44,8 +38,11 @@ jobs:
         run: |
           # install production deps if exist
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
           # install dev deps if exist (recommended)
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; else
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
             pip install pytest coverage || true
             pip install pre-commit mypy || true
             pip install build || true
@@ -84,7 +81,9 @@ jobs:
 
       - name: Install dev dependencies
         run: |
-          if [ -f requirements_dev.txt ]; then pip install -r requirements_dev.txt; else
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
             pip install pre-commit mypy flake8 || true
           fi
 
@@ -99,7 +98,6 @@ jobs:
       - name: Run type checking (mypy)
         run: |
           if command -v mypy >/dev/null 2>&1; then
-            # chỉ check thư mục backend/src nếu tồn tại, fallback là project root
             if [ -d backend/src ]; then
               mypy backend/src || true
             else
@@ -119,6 +117,7 @@ jobs:
             fi
           else
             echo "flake8 not installed — skipping."
+          fi
 
   build:
     name: Build (artifact)
