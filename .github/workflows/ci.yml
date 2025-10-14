@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [ main, dev ]
+    branches: [ main, develop ]
   push:
-    branches: [ main, dev ]
+    branches: [ main, develop ]
 
 env:
   PYTHON_VERSION: "3.12"
@@ -84,7 +84,7 @@ jobs:
 
       - name: Install dev dependencies
         run: |
-          if [ -f requirements_dev.txt ]; then pip install -r requirements-dev.txt; else
+          if [ -f requirements_dev.txt ]; then pip install -r requirements_dev.txt; else
             pip install pre-commit mypy flake8 || true
           fi
 
