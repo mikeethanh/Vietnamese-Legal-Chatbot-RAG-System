@@ -11,18 +11,6 @@ conda create -n dl python=3.9
 conda activate dl
 pip install -r requirements.txt
 ```
-### 1. Generate data
-```shell
-python utils/generate_fake_data.py
-```
-After running this script, you should see another folder `data` folder with the following structure:
-```shell
-data/
-└── pump
-    ├── part_0.parquet
-    ├── part_1.parquet
-    └── part_2.parquet
-```
 
 ### 2. Push data to MinIO
 ```shell
@@ -32,7 +20,6 @@ Please note that besides using the script, you can definitely upload manually th
 
 After pushing the data to MinIO, access `MinIO` at 
 `http://localhost:9001/`, you should see your data already there.
-![minio](./imgs/minio.png)
 
 ## Create data schema
 After putting your files to `MinIO`, please execute `trino` container by the following command:
