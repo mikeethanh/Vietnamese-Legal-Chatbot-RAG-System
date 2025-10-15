@@ -1,6 +1,8 @@
 minio==7.1.16
 PyYAML==6.0.1
-deltalake==0.10.2
 numpy==1.26.0
 pandas==2.1.0
-delta-spark==3.1.0
+fastparquet==2024.5.0
+pyspark==3.3.2
+pydeequ==1.0.1
+python-dotenv==1.0.0

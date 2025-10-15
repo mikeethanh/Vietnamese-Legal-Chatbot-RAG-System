@@ -1,10 +1,17 @@
-fake_data:
-  folder_path: ./data/pump
-  num_files: 3
-
+# utils/config.yaml (mẫu)
 datalake:
-  endpoint: localhost:9000
-  bucket_name: iot-time-series
-  folder_name: pump
-  access_key: minio_access_key
-  secret_key: minio_secret_key
+  endpoint: "localhost:9000"      # từ host dùng localhost, từ container dùng minio:9000
+  bucket_name: "datalake"         # 1 bucket dành cho dự án
+  prefixes:
+    raw:
+      corpus: "raw/rag_corpus"
+      finetune: "raw/finetune_data"
+    processed:
+      corpus: "processed/rag_corpus"
+      finetune: "processed/finetune_data"
+  access_key: "minio_access_key"
+  secret_key: "minio_secret_key"
+  secure: false
+
+local:
+  base_raw_path: "./data"         # local source root (contains rag_corpus, finetune_data)
