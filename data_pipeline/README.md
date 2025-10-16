@@ -1,84 +1,87 @@
-# How-to Guide
+# Vietnamese Legal Corpus Processing with Apache Spark
 
-## Start our data lake infrastructure
-```shell
-docker compose -f docker-compose.yml -d
+Công cụ xử lý dữ liệu corpus pháp luật Việt Nam sử dụng Apache Spark để tạo dataset huấn luyện cho RAG chatbot.
+
+## Cấu trúc dữ liệu trên S3
+
+```
+s3://legal-datalake/
+├── raw/
+│   ├── rag_corpus/
+│   │   ├── corpus.csv
+│   │   ├── data (1).csv
+│   │   ├── updated_legal_corpus.csv
+│   │   ├── legal_corpus.json
+│   │   ├── zalo_corpus.json
+│   │   └── vbpl_crawl.json
+│   └── finetune_data/
+│       └── ...
+└── processed/
+    └── rag_corpus/
+        └── combined.jsonl
 ```
 
-## Generate data and push them to MinIO
+## 1. Setup environment
 ```shell
 conda create -n dl python=3.9
 conda activate dl
 pip install -r requirements.txt
+
+# Cài đặt Apache Spark
+wget https://archive.apache.org/dist/spark/spark-3.3.2/spark-3.3.2-bin-hadoop3.tgz
+tar -xzf spark-3.3.2-bin-hadoop3.tgz
+export SPARK_HOME=/path/to/spark-3.3.2-bin-hadoop3
+export PATH=$SPARK_HOME/bin:$PATH
 ```
 
-### 2. Push data to MinIO
+## 2. Configure AWS S3 credentials
 ```shell
-python utils/export_data_to_datalake.py
+# Configure AWS credentials
+aws configure
+# OR set environment variables
+export AWS_ACCESS_KEY_ID="your_access_key"
+export AWS_SECRET_ACCESS_KEY="your_secret_key"
+export AWS_DEFAULT_REGION="ap-southeast-1"
 ```
-Please note that besides using the script, you can definitely upload manually the data, however it is not recommended!
 
-After pushing the data to MinIO, access `MinIO` at 
-`http://localhost:9001/`, you should see your data already there.
+## 3. Sử dụng
 
-## Create data schema
-After putting your files to `MinIO`, please execute `trino` container by the following command:
+### Phương án 1: Sử dụng shell script (đơn giản nhất)
+```bash
+cd data_pipeline
+chmod +x run_spark_process.sh
+./run_spark_process.sh
+```
+
+### Phương án 2: Chạy trực tiếp với spark-submit
+```bash
+# Cho AWS S3 (bucket: legal-datalake)
+spark-submit \
+  --master local[*] \
+  --driver-memory 12g \
+  --packages org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.11.901 \
+  utils/spark_process_rag_corpus.py \
+    --bucket legal-datalake \
+    --raw-prefix raw/rag_corpus \
+    --out-prefix processed/rag_corpus \
+    --coalesce
+```
+
+## 4. Kết quả
+
+Sau khi chạy thành công, dữ liệu được xử lý sẽ có tại:
+- `s3://legal-datalake/processed/rag_corpus/combined.jsonl`
+
+Định dạng JSON Lines:
+```json
+{"id": "unique_hash", "text": "nội dung văn bản pháp luật..."}
+{"id": "unique_hash", "text": "nội dung văn bản pháp luật..."}
+```
 ```shell
-docker exec -ti datalake-trino bash
+aws s3 ls
 ```
-
-When you are already inside the `trino` container, typing `trino` to in an interactive mode
-
-After that, run the following command to register a new schema for our data:
-
-```sql
----Create a new schema to store tables
-CREATE SCHEMA IF NOT EXISTS mle.iot_time_series
-WITH (location = 's3://iot-time-series/');
-
----Create a new table in the newly created schema
-CREATE TABLE IF NOT EXISTS mle.iot_time_series.pump (
-  event_timestamp TIMESTAMP,
-  pressure DOUBLE,
-  velocity DOUBLE,
-  speed DOUBLE
-) WITH (
-  external_location = 's3://iot-time-series/pump',
-  format = 'PARQUET'
-);
-```
-
-**Note:** Instead of going into the `trino` container, you can also execute the queries on `DBeaver`.
-
-## Query with DBeaver
-1. Install `DBeaver` as in the following [guide](https://dbeaver.io/download/)
-2. Connect to our database (type `trino`) using the following information (empty `password`):
-  ![DBeaver Trino](./imgs/trino.png)
-3. Execute your queries on DBeaver
-
-## Query multiple sources with DBeaver
-1. Connect to our `metastore` database, and create a new table using the following query
-```sql
--- Create the pump table
-CREATE TABLE "offline-fs".public.pump (
-    event_timestamp TIMESTAMP,
-    pressure DOUBLE,
-    velocity DOUBLE,
-    speed DOUBLE
-);
-
--- Insert 5 mock data entries
-INSERT INTO "offline-fs".public.pump (event_timestamp, pressure, velocity, speed) VALUES
-(TIMESTAMP '2024-07-14 08:30:00', 120.5, 5.2, 15.7),
-(TIMESTAMP '2024-07-14 09:00:00', 115.3, 5.5, 14.9),
-(TIMESTAMP '2024-07-14 09:30:00', 110.8, 5.1, 14.5),
-(TIMESTAMP '2024-07-14 10:00:00', 112.4, 5.3, 15.1),
-(TIMESTAMP '2024-07-14 10:30:00', 118.2, 5.4, 15.6);
-```
-
-2. Union join 2 tables from `mle` and `offline-fs` catalogs
-```sql
-SELECT * FROM mle.iot_time_series.pump 
-UNION ALL
-SELECT * FROM "offline-fs".public.pump;
+## 3. Upload data to S3
+We will upload our datasets (finetune_data and rag_corpus) directly to an existing S3 bucket.
+```shell
+python utils/upload_to_s3.py 
 ```
