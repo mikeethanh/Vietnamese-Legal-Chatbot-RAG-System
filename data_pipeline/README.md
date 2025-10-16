@@ -1,87 +1,148 @@
-# Vietnamese Legal Corpus Processing with Apache Spark
+# Data Pipeline for Vietnamese Legal Chatbot RAG System
 
-Công cụ xử lý dữ liệu corpus pháp luật Việt Nam sử dụng Apache Spark để tạo dataset huấn luyện cho RAG chatbot.
+This data pipeline processes Vietnamese legal documents and prepares them for the RAG (Retrieval-Augmented Generation) system using Apache Spark.
 
-## Cấu trúc dữ liệu trên S3
+## Overview
 
+The pipeline processes various legal document formats (CSV, JSON, JSONL) and converts them into a unified format suitable for embedding generation and vector database storage.
+
+## Features
+
+- **Multi-format Support**: Processes CSV, JSON, and JSONL files containing legal documents
+- **Data Cleaning**: Removes duplicates, empty content, and invalid entries
+- **Text Standardization**: Normalizes Vietnamese text for consistent processing
+- **Scalable Processing**: Uses Apache Spark for handling large datasets
+- **Flexible Output**: Generates JSONL format optimized for RAG systems
+
+## Prerequisites
+
+### System Requirements
+- Python 3.8+
+- Apache Spark 3.4+
+- Java 8 or 11
+- Minimum 8GB RAM (12GB recommended)
+
+### Python Dependencies
+```bash
+pip install -r requirements.txt
 ```
-s3://legal-datalake/
-├── raw/
-│   ├── rag_corpus/
-│   │   ├── corpus.csv
-│   │   ├── data (1).csv
-│   │   ├── updated_legal_corpus.csv
-│   │   ├── legal_corpus.json
-│   │   ├── zalo_corpus.json
-│   │   └── vbpl_crawl.json
-│   └── finetune_data/
-│       └── ...
+
+## Quick Start
+
+### 1. Environment Setup
+```bash
+# Create conda environment
+conda create -n legal-rag python=3.9
+conda activate legal-rag
+pip install -r requirements.txt
+
+# Install Apache Spark
+wget https://archive.apache.org/dist/spark/spark-3.4.0/spark-3.4.0-bin-hadoop3.tgz
+tar -xzf spark-3.4.0-bin-hadoop3.tgz
+export SPARK_HOME=/path/to/spark-3.4.0-bin-hadoop3
+export PATH=$SPARK_HOME/bin:$PATH
+
+# Copy environment template (optional)
+cp utils/.env.example utils/.env
+```
+
+### 2. Prepare Your Data
+Place your legal documents in the following structure:
+```
+data_pipeline/
+├── data/
+│   └── rag_corpus/
+│       ├── corpus.csv
+│       ├── data (1).csv
+│       ├── updated_legal_corpus.csv
+│       ├── legal_corpus.json
+│       ├── zalo_corpus.json
+│       └── vbpl_crawl.json
 └── processed/
     └── rag_corpus/
         └── combined.jsonl
 ```
 
-## 1. Setup environment
-```shell
-conda create -n dl python=3.9
-conda activate dl
-pip install -r requirements.txt
+### 3. Run Processing Pipeline
 
-# Cài đặt Apache Spark
-wget https://archive.apache.org/dist/spark/spark-3.3.2/spark-3.3.2-bin-hadoop3.tgz
-tar -xzf spark-3.3.2-bin-hadoop3.tgz
-export SPARK_HOME=/path/to/spark-3.3.2-bin-hadoop3
-export PATH=$SPARK_HOME/bin:$PATH
-```
-
-## 2. Configure AWS S3 credentials
-```shell
-# Configure AWS credentials
-aws configure
-# OR set environment variables
-export AWS_ACCESS_KEY_ID="your_access_key"
-export AWS_SECRET_ACCESS_KEY="your_secret_key"
-export AWS_DEFAULT_REGION="ap-southeast-1"
-```
-
-## 3. Sử dụng
-
-### Phương án 1: Sử dụng shell script (đơn giản nhất)
+#### Option 1: Using automation script (recommended)
 ```bash
 cd data_pipeline
 chmod +x run_spark_process.sh
 ./run_spark_process.sh
 ```
 
-### Phương án 2: Chạy trực tiếp với spark-submit
+#### Option 2: Manual execution with spark-submit
 ```bash
-# Cho AWS S3 (bucket: legal-datalake)
 spark-submit \
   --master local[*] \
   --driver-memory 12g \
-  --packages org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.11.901 \
   utils/spark_process_rag_corpus.py \
-    --bucket legal-datalake \
-    --raw-prefix raw/rag_corpus \
-    --out-prefix processed/rag_corpus \
-    --coalesce
+  --raw-prefix data/rag_corpus \
+  --out-prefix processed/rag_corpus \
+  --coalesce
 ```
 
-## 4. Kết quả
+## File Formats and Structure
 
-Sau khi chạy thành công, dữ liệu được xử lý sẽ có tại:
-- `s3://legal-datalake/processed/rag_corpus/combined.jsonl`
+### Input Files
 
-Định dạng JSON Lines:
+#### CSV Files
+- `corpus.csv`: Contains legal documents with `text` column
+- `data (1).csv`: Legal content with `full_text` column  
+- `updated_legal_corpus.csv`: Legal corpus with `content` column
+
+#### JSON Files
+- `legal_corpus.json`: Legal documents in JSON format
+- `zalo_corpus.json`: Zalo-sourced legal content
+- `vbpl_crawl.json`: Crawled legal documents from VBPL
+
+### Output Format
+The pipeline generates a unified JSONL file where each line contains:
 ```json
-{"id": "unique_hash", "text": "nội dung văn bản pháp luật..."}
-{"id": "unique_hash", "text": "nội dung văn bản pháp luật..."}
+{"id": "unique_document_id", "text": "processed_legal_text"}
+{"id": "unique_document_id", "text": "processed_legal_text"}
 ```
-```shell
-aws s3 ls
+
+## Configuration Options
+
+### Command Line Arguments
+- `--raw-prefix`: Path to raw data directory (default: `data/rag_corpus`)
+- `--out-prefix`: Path to output directory (default: `processed/rag_corpus`)  
+- `--coalesce`: Combine output into single file (recommended for final processing)
+
+### Spark Configuration
+The pipeline automatically configures Spark with:
+- Adaptive query execution enabled
+- Dynamic partition coalescing
+- Optimized memory settings for text processing
+
+## Results
+
+After successful execution, processed data will be available at:
+- `processed/rag_corpus/combined.jsonl`
+
+The output format follows JSON Lines specification with each document containing a unique ID and processed text content suitable for RAG system integration.
+
+## Cloud Storage Integration
+
+### Upload to S3 (Optional)
+For cloud deployment, use the S3 upload utility:
+```bash
+# Configure AWS credentials first
+aws configure
+
+# Upload processed data
+python utils/upload_to_s3.py
 ```
-## 3. Upload data to S3
-We will upload our datasets (finetune_data and rag_corpus) directly to an existing S3 bucket.
-```shell
-python utils/upload_to_s3.py 
+
+### S3 Data Structure
+```
+s3://legal-datalake/
+├── raw/
+│   └── rag_corpus/
+│       └── [source files]
+└── processed/
+    └── rag_corpus/
+        └── combined.jsonl
 ```
