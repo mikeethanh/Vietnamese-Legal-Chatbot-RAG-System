@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  test:
+    name: Test (pytest + coverage if exist)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ "3.12" ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies (prod + dev if present)
+        run: |
+          # install production deps if exist
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+          # install dev deps if exist (recommended)
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            pip install pytest coverage || true
+            pip install pre-commit mypy || true
+            pip install build || true
+          fi
+
+      - name: Run pytest (only if tests exist)
+        run: |
+          # tìm tests/ folder hoặc test_*.py
+          if [ -d tests ] || ls **/test_*.py 2>/dev/null | grep -q .; then
+            echo "Found tests — running pytest..."
+            pytest -q -ra --maxfail=1
+          else
+            echo "No tests found — skipping pytest."
+          fi
+
+  quality:
+    name: Code Quality (pre-commit + mypy + flake8)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pre-commit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-
+
+      - name: Install dev dependencies
+        run: |
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            pip install pre-commit mypy flake8 || true
+          fi
+
+      - name: Run pre-commit (if config present)
+        run: |
+          if [ -f .pre-commit-config.yaml ]; then
+            pre-commit run --all-files
+          else
+            echo "No .pre-commit-config.yaml — skipping pre-commit."
+          fi
+
+      - name: Run type checking (mypy)
+        run: |
+          if command -v mypy >/dev/null 2>&1; then
+            if [ -d backend/src ]; then
+              mypy backend/src || true
+            else
+              mypy . || true
+            fi
+          else
+            echo "mypy not installed — skipping."
+          fi
+
+      - name: Run flake8 (optional)
+        run: |
+          if command -v flake8 >/dev/null 2>&1; then
+            if [ -d backend/src ]; then
+              flake8 backend/src || true
+            else
+              flake8 || true
+            fi
+          else
+            echo "flake8 not installed — skipping."
+          fi
+
+  build:
+    name: Build (artifact)
+    runs-on: ubuntu-latest
+    needs: [ test, quality ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tool
+        run: |
+          pip install build || true
+
+      - name: Build package (if pyproject or setup.py present)
+        run: |
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            python -m build
+          else
+            echo "No pyproject.toml or setup.py — skipping package build."
+            mkdir -p dist
+            echo "no-package" > dist/README.txt
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

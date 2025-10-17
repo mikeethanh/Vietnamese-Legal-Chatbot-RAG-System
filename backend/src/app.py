@@ -1,3 +1,4 @@
+from dataclasses import Field
 import logging
 import time
 from typing import Dict, Optional
@@ -10,6 +11,10 @@ from utils import setup_logging
 from tasks import index_document_v2, llm_handle_message, index_document
 from vectorize import create_collection
 
+# Constants
+TASK_TIMEOUT = 60  
+POLLING_INTERVAL = 0.5 
+
 setup_logging()
 logger = logging.getLogger(__name__)
 
@@ -19,8 +24,8 @@ app = FastAPI()
 
 class CompleteRequest(BaseModel):
     bot_id: Optional[str] = 'botLawyer'
-    user_id: str
-    user_message: str
+    user_id: str = Field(..., min_length=1, max_length=100)
+    user_message: str = Field(..., min_length=1)
     sync_request: Optional[bool] = False
 
 
@@ -56,7 +61,7 @@ async def get_response(task_id: str):
         logger.info(f"Task result: {task_result.result}")
 
         if task_status == 'PENDING':
-            if time.time() - start_time > 60:  # 60 seconds timeout
+            if time.time() - start_time > TASK_TIMEOUT:
                 return {
                     "task_id": task_id,
                     "task_status": task_result.status,
@@ -64,7 +69,7 @@ async def get_response(task_id: str):
                     "error_message": "Service timeout, retry please"
                 }
             else:
-                time.sleep(0.5)  # sleep for 0.5 seconds before retrying
+                time.sleep(POLLING_INTERVAL)  # sleep for 0.5 seconds before retrying
         else:
             result = {
                 "task_id": task_id,
