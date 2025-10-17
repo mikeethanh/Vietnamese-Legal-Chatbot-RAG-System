@@ -2,6 +2,7 @@ import asyncio
 import logging
 from copy import copy
 
+from backend.src.splitter import split_document
 from celery import shared_task
 
 from summarizer import summarize_text
@@ -47,23 +48,6 @@ def bot_rag_answer_message(history, question):
 
     logger.info(f"Bot RAG reply: {assistant_answer}")
     return assistant_answer
-
-def index_document(id, title, content, collection_name=DEFAULT_COLLECTION_NAME):
-    vector = get_embedding(title)
-    add_vector_status = add_vector(
-        collection_name=collection_name,
-        vectors={
-            id: {
-                "vector": vector,
-                "payload": {
-                    "title": title,
-                    "content": content
-                }
-            }
-        }
-    )
-    logger.info(f"Add vector status: {add_vector_status}")
-    return add_vector_status
 
 
 def index_document_v2(id, title, content, collection_name=DEFAULT_COLLECTION_NAME):

@@ -1,84 +1,139 @@
-# How-to Guide
+# Data Pipeline for Vietnamese Legal Chatbot RAG System
 
-## Start our data lake infrastructure
-```shell
-docker compose -f docker-compose.yml -d
-```
+This comprehensive data pipeline processes Vietnamese legal documents for both RAG (Retrieval-Augmented Generation) corpus and fine-tuning datasets using Apache Spark and pandas.
 
-## Generate data and push them to MinIO
-```shell
-conda create -n dl python=3.9
-conda activate dl
+## Overview
+
+The pipeline handles two main data processing workflows:
+1. **RAG Corpus Processing**: Converts various legal document formats into unified JSONL for vector database
+2. **Fine-tuning Data Processing**: Prepares question-context pairs for LLaMA model training
+
+## Features
+
+### RAG Corpus Processing
+- **Multi-format Support**: Processes CSV, JSON, and JSONL files containing legal documents
+- **Data Cleaning**: Removes duplicates, empty content, and invalid entries
+- **Text Standardization**: Normalizes Vietnamese text for consistent processing
+- **Scalable Processing**: Uses Apache Spark for handling large datasets
+- **Gzip Handling**: Automatically processes Spark's compressed output files
+
+### Fine-tuning Data Processing
+- **Question-Context Extraction**: Standardizes QA datasets for model training
+- **Multiple Sources**: Handles large_vi_legal_queries, train, and validation datasets
+- **Instruction Format**: Creates Alpaca-style instruction following format
+- **Data Validation**: Ensures clean, properly formatted training data
+
+## Prerequisites
+
+### System Requirements
+- Python 3.8+
+- Apache Spark 3.4+
+- Java 8 or 11
+- Minimum 8GB RAM (12GB recommended)
+
+
+## Quick Start
+
+### 1. Environment Setup
+```bash
+# Create conda environment
+conda create -n legal-rag python=3.9
+conda activate legal-rag
 pip install -r requirements.txt
+
+# Install Apache Spark
+wget https://archive.apache.org/dist/spark/spark-3.4.0/spark-3.4.0-bin-hadoop3.tgz
+tar -xzf spark-3.4.0-bin-hadoop3.tgz
+export SPARK_HOME=/path/to/spark-3.4.0-bin-hadoop3
+export PATH=$SPARK_HOME/bin:$PATH
 ```
 
-### 2. Push data to MinIO
-```shell
-python utils/export_data_to_datalake.py
+### 2. Data Structure
 ```
-Please note that besides using the script, you can definitely upload manually the data, however it is not recommended!
-
-After pushing the data to MinIO, access `MinIO` at 
-`http://localhost:9001/`, you should see your data already there.
-
-## Create data schema
-After putting your files to `MinIO`, please execute `trino` container by the following command:
-```shell
-docker exec -ti datalake-trino bash
-```
-
-When you are already inside the `trino` container, typing `trino` to in an interactive mode
-
-After that, run the following command to register a new schema for our data:
-
-```sql
----Create a new schema to store tables
-CREATE SCHEMA IF NOT EXISTS mle.iot_time_series
-WITH (location = 's3://iot-time-series/');
-
----Create a new table in the newly created schema
-CREATE TABLE IF NOT EXISTS mle.iot_time_series.pump (
-  event_timestamp TIMESTAMP,
-  pressure DOUBLE,
-  velocity DOUBLE,
-  speed DOUBLE
-) WITH (
-  external_location = 's3://iot-time-series/pump',
-  format = 'PARQUET'
-);
+data_pipeline/
+├── data/
+│   ├── raw/
+│   │   ├── rag_corpus/
+│   │   │   ├── corpus.csv
+│   │   │   ├── data (1).csv
+│   │   │   ├── updated_legal_corpus.csv
+│   │   │   ├── legal_corpus.json
+│   │   │   ├── zalo_corpus.json
+│   │   │   └── vbpl_crawl.json
+│   │   └── finetune_data/
+│   │       ├── large_vi_legal_queries.csv
+│   │       ├── train.csv
+│   │       └── valid.csv
+│   └── process_data/
+│       ├── rag_corpus/
+│       │   └── merged_corpus.jsonl
+│       └── finetune_data/
+│           ├── combined_finetune_data.jsonl
+│           ├── train_instruction.jsonl
+│           └── valid_instruction.jsonl
 ```
 
-**Note:** Instead of going into the `trino` container, you can also execute the queries on `DBeaver`.
+## Processing Workflows
 
-## Query with DBeaver
-1. Install `DBeaver` as in the following [guide](https://dbeaver.io/download/)
-2. Connect to our database (type `trino`) using the following information (empty `password`):
-  ![DBeaver Trino](./imgs/trino.png)
-3. Execute your queries on DBeaver
+### RAG Corpus Processing
 
-## Query multiple sources with DBeaver
-1. Connect to our `metastore` database, and create a new table using the following query
-```sql
--- Create the pump table
-CREATE TABLE "offline-fs".public.pump (
-    event_timestamp TIMESTAMP,
-    pressure DOUBLE,
-    velocity DOUBLE,
-    speed DOUBLE
-);
+#### Step 1: Run Spark Processing
+```bash
+# Using automation script (recommended)
+cd data_pipeline
+chmod +x run_spark_process.sh
+./run_spark_process.sh
 
--- Insert 5 mock data entries
-INSERT INTO "offline-fs".public.pump (event_timestamp, pressure, velocity, speed) VALUES
-(TIMESTAMP '2024-07-14 08:30:00', 120.5, 5.2, 15.7),
-(TIMESTAMP '2024-07-14 09:00:00', 115.3, 5.5, 14.9),
-(TIMESTAMP '2024-07-14 09:30:00', 110.8, 5.1, 14.5),
-(TIMESTAMP '2024-07-14 10:00:00', 112.4, 5.3, 15.1),
-(TIMESTAMP '2024-07-14 10:30:00', 118.2, 5.4, 15.6);
+# Or manually with spark-submit
+spark-submit \
+  --master local[*] \
+  --driver-memory 12g \
+  utils/spark_process_rag_corpus.py \
+  --raw-prefix data/raw/rag_corpus \
+  --out-prefix data/process_data/rag_corpus \
+  --coalesce
 ```
 
-2. Union join 2 tables from `mle` and `offline-fs` catalogs
-```sql
-SELECT * FROM mle.iot_time_series.pump 
-UNION ALL
-SELECT * FROM "offline-fs".public.pump;
+#### Step 2: Convert Spark Output to JSONL
+Spark creates compressed part files that need to be merged:
+
+```bash
+# Find the generated UUID directory
+ls data/process_data/rag_corpus/combined.jsonl/
+
+# Convert part files to single JSONL (replace UUID with actual directory)
+python utils/merge_part_files_v2.py \
+  data/process_data/rag_corpus/combined.jsonl/[UUID] \
+  data/process_data/rag_corpus/merged_corpus.jsonl
 ```
+
+#### Step 3: Clean Invalid JSON Lines (if needed)
+```bash
+# Clean any invalid JSON lines
+python utils/clean_jsonl.py data/process_data/rag_corpus/merged_corpus.jsonl
+```
+
+### Fine-tuning Data Processing
+
+#### Step 1: Process CSV Files
+```bash
+# Convert CSV files to standardized JSONL format
+python utils/process_finetune_data.py \
+  --input-dir data/raw/finetune_data \
+  --output-dir data/process_data/finetune_data
+```
+
+#### Step 2: Create Instruction Format
+```bash
+# Generate Alpaca-style instruction format for training
+python utils/create_instruction_format.py \
+  data/process_data/finetune_data/train.jsonl \
+  data/process_data/finetune_data/train_instruction.jsonl \
+  --format alpaca
+
+python utils/create_instruction_format.py \
+  data/process_data/finetune_data/valid.jsonl \
+  data/process_data/finetune_data/valid_instruction.jsonl \
+  --format alpaca
+```
+
