@@ -1,18 +1,27 @@
 # Data Pipeline for Vietnamese Legal Chatbot RAG System
 
-This data pipeline processes Vietnamese legal documents and prepares them for the RAG (Retrieval-Augmented Generation) system using Apache Spark.
+This comprehensive data pipeline processes Vietnamese legal documents for both RAG (Retrieval-Augmented Generation) corpus and fine-tuning datasets using Apache Spark and pandas.
 
 ## Overview
 
-The pipeline processes various legal document formats (CSV, JSON, JSONL) and converts them into a unified format suitable for embedding generation and vector database storage.
+The pipeline handles two main data processing workflows:
+1. **RAG Corpus Processing**: Converts various legal document formats into unified JSONL for vector database
+2. **Fine-tuning Data Processing**: Prepares question-context pairs for LLaMA model training
 
 ## Features
 
+### RAG Corpus Processing
 - **Multi-format Support**: Processes CSV, JSON, and JSONL files containing legal documents
 - **Data Cleaning**: Removes duplicates, empty content, and invalid entries
 - **Text Standardization**: Normalizes Vietnamese text for consistent processing
 - **Scalable Processing**: Uses Apache Spark for handling large datasets
-- **Flexible Output**: Generates JSONL format optimized for RAG systems
+- **Gzip Handling**: Automatically processes Spark's compressed output files
+
+### Fine-tuning Data Processing
+- **Question-Context Extraction**: Standardizes QA datasets for model training
+- **Multiple Sources**: Handles large_vi_legal_queries, train, and validation datasets
+- **Instruction Format**: Creates Alpaca-style instruction following format
+- **Data Validation**: Ensures clean, properly formatted training data
 
 ## Prerequisites
 
@@ -22,10 +31,6 @@ The pipeline processes various legal document formats (CSV, JSON, JSONL) and con
 - Java 8 or 11
 - Minimum 8GB RAM (12GB recommended)
 
-### Python Dependencies
-```bash
-pip install -r requirements.txt
-```
 
 ## Quick Start
 
@@ -41,108 +46,94 @@ wget https://archive.apache.org/dist/spark/spark-3.4.0/spark-3.4.0-bin-hadoop3.t
 tar -xzf spark-3.4.0-bin-hadoop3.tgz
 export SPARK_HOME=/path/to/spark-3.4.0-bin-hadoop3
 export PATH=$SPARK_HOME/bin:$PATH
-
-# Copy environment template (optional)
-cp utils/.env.example utils/.env
 ```
 
-### 2. Prepare Your Data
-Place your legal documents in the following structure:
+### 2. Data Structure
 ```
 data_pipeline/
 ├── data/
-│   └── rag_corpus/
-│       ├── corpus.csv
-│       ├── data (1).csv
-│       ├── updated_legal_corpus.csv
-│       ├── legal_corpus.json
-│       ├── zalo_corpus.json
-│       └── vbpl_crawl.json
-└── processed/
-    └── rag_corpus/
-        └── combined.jsonl
+│   ├── raw/
+│   │   ├── rag_corpus/
+│   │   │   ├── corpus.csv
+│   │   │   ├── data (1).csv
+│   │   │   ├── updated_legal_corpus.csv
+│   │   │   ├── legal_corpus.json
+│   │   │   ├── zalo_corpus.json
+│   │   │   └── vbpl_crawl.json
+│   │   └── finetune_data/
+│   │       ├── large_vi_legal_queries.csv
+│   │       ├── train.csv
+│   │       └── valid.csv
+│   └── process_data/
+│       ├── rag_corpus/
+│       │   └── merged_corpus.jsonl
+│       └── finetune_data/
+│           ├── combined_finetune_data.jsonl
+│           ├── train_instruction.jsonl
+│           └── valid_instruction.jsonl
 ```
 
-### 3. Run Processing Pipeline
+## Processing Workflows
 
-#### Option 1: Using automation script (recommended)
+### RAG Corpus Processing
+
+#### Step 1: Run Spark Processing
 ```bash
+# Using automation script (recommended)
 cd data_pipeline
 chmod +x run_spark_process.sh
 ./run_spark_process.sh
-```
 
-#### Option 2: Manual execution with spark-submit
-```bash
+# Or manually with spark-submit
 spark-submit \
   --master local[*] \
   --driver-memory 12g \
   utils/spark_process_rag_corpus.py \
-  --raw-prefix data/rag_corpus \
-  --out-prefix processed/rag_corpus \
+  --raw-prefix data/raw/rag_corpus \
+  --out-prefix data/process_data/rag_corpus \
   --coalesce
 ```
 
-## File Formats and Structure
+#### Step 2: Convert Spark Output to JSONL
+Spark creates compressed part files that need to be merged:
 
-### Input Files
-
-#### CSV Files
-- `corpus.csv`: Contains legal documents with `text` column
-- `data (1).csv`: Legal content with `full_text` column  
-- `updated_legal_corpus.csv`: Legal corpus with `content` column
-
-#### JSON Files
-- `legal_corpus.json`: Legal documents in JSON format
-- `zalo_corpus.json`: Zalo-sourced legal content
-- `vbpl_crawl.json`: Crawled legal documents from VBPL
-
-### Output Format
-The pipeline generates a unified JSONL file where each line contains:
-```json
-{"id": "unique_document_id", "text": "processed_legal_text"}
-{"id": "unique_document_id", "text": "processed_legal_text"}
-```
-
-## Configuration Options
-
-### Command Line Arguments
-- `--raw-prefix`: Path to raw data directory (default: `data/rag_corpus`)
-- `--out-prefix`: Path to output directory (default: `processed/rag_corpus`)  
-- `--coalesce`: Combine output into single file (recommended for final processing)
-
-### Spark Configuration
-The pipeline automatically configures Spark with:
-- Adaptive query execution enabled
-- Dynamic partition coalescing
-- Optimized memory settings for text processing
-
-## Results
-
-After successful execution, processed data will be available at:
-- `processed/rag_corpus/combined.jsonl`
-
-The output format follows JSON Lines specification with each document containing a unique ID and processed text content suitable for RAG system integration.
-
-## Cloud Storage Integration
-
-### Upload to S3 (Optional)
-For cloud deployment, use the S3 upload utility:
 ```bash
-# Configure AWS credentials first
-aws configure
+# Find the generated UUID directory
+ls data/process_data/rag_corpus/combined.jsonl/
 
-# Upload processed data
-python utils/upload_to_s3.py
+# Convert part files to single JSONL (replace UUID with actual directory)
+python utils/merge_part_files_v2.py \
+  data/process_data/rag_corpus/combined.jsonl/[UUID] \
+  data/process_data/rag_corpus/merged_corpus.jsonl
 ```
 
-### S3 Data Structure
+#### Step 3: Clean Invalid JSON Lines (if needed)
+```bash
+# Clean any invalid JSON lines
+python utils/clean_jsonl.py data/process_data/rag_corpus/merged_corpus.jsonl
 ```
-s3://legal-datalake/
-├── raw/
-│   └── rag_corpus/
-│       └── [source files]
-└── processed/
-    └── rag_corpus/
-        └── combined.jsonl
+
+### Fine-tuning Data Processing
+
+#### Step 1: Process CSV Files
+```bash
+# Convert CSV files to standardized JSONL format
+python utils/process_finetune_data.py \
+  --input-dir data/raw/finetune_data \
+  --output-dir data/process_data/finetune_data
 ```
+
+#### Step 2: Create Instruction Format
+```bash
+# Generate Alpaca-style instruction format for training
+python utils/create_instruction_format.py \
+  data/process_data/finetune_data/train.jsonl \
+  data/process_data/finetune_data/train_instruction.jsonl \
+  --format alpaca
+
+python utils/create_instruction_format.py \
+  data/process_data/finetune_data/valid.jsonl \
+  data/process_data/finetune_data/valid_instruction.jsonl \
+  --format alpaca
+```
+
