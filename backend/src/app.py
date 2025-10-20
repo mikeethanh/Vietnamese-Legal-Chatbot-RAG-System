@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from models import insert_document
 from utils import setup_logging
-from tasks import index_document_v2, llm_handle_message, index_document
+from tasks import index_document_v2, llm_handle_message
 from vectorize import create_collection
 
 # Constants
@@ -24,8 +24,8 @@ app = FastAPI()
 
 class CompleteRequest(BaseModel):
     bot_id: Optional[str] = 'botLawyer'
-    user_id: str = Field(..., min_length=1, max_length=100)
-    user_message: str = Field(..., min_length=1)
+    user_id: str
+    user_message: str
     sync_request: Optional[bool] = False
 
 
