@@ -119,7 +119,7 @@ python utils/clean_jsonl.py data/process_data/rag_corpus/merged_corpus.jsonl
 ```bash
 # Convert CSV files to standardized JSONL format
 python utils/process_finetune_data.py \
-  --input-dir data/raw/finetune_data \
+  --input-dir data/raw/finetuning \
   --output-dir data/process_data/finetune_data
 ```
 
