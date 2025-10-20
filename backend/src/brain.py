@@ -54,52 +54,157 @@ def generate_conversation_text(conversations):
 
 
 def detect_user_intent(history, message):
+    """
+    Detect user intent and rephrase follow-up questions to standalone questions.
+    Improved for Vietnamese legal context with better prompt engineering.
+    """
     # Convert history to list messages
     history_messages = generate_conversation_text(history)
     logger.info(f"History messages: {history_messages}")
-    # Update documents to prompt
-    user_prompt = f"""
-    Given following conversation and follow up question, rephrase the follow up question to a standalone question in Vietnamese.
+    
+    # Check if this is likely a follow-up question
+    follow_up_indicators = ["đó", "này", "kia", "thế", "vậy", "nữa", "còn", "như vậy", "như thế"]
+    is_follow_up = any(indicator in message.lower() for indicator in follow_up_indicators)
+    
+    # If no history or not a follow-up, return original
+    if not history or len(history) <= 1 and not is_follow_up:
+        logger.info("No context needed, returning original query")
+        return message
+    
+    # Update documents to prompt with better Vietnamese legal context
+    user_prompt = f"""Bạn là trợ lý AI chuyên về luật pháp Việt Nam. Nhiệm vụ của bạn là viết lại câu hỏi tiếp theo thành một câu hỏi độc lập, rõ ràng và đầy đủ ngữ cảnh.
 
-    Chat History:
-    {history_messages}
+Lịch sử hội thoại:
+{history_messages}
 
-    Original Question: {message}
+Câu hỏi hiện tại: {message}
 
-    Answer:
-    """
+Hướng dẫn:
+1. Viết lại câu hỏi sao cho có thể hiểu được mà KHÔNG cần đọc lịch sử hội thoại
+2. Thay thế các đại từ (nó, đó, này, kia, thế, vậy) bằng danh từ hoặc cụm từ cụ thể từ ngữ cảnh
+3. Bổ sung thông tin cần thiết từ lịch sử để câu hỏi trở nên đầy đủ
+4. Giữ nguyên ý định hỏi về pháp luật của người dùng
+5. Sử dụng thuật ngữ pháp lý chính xác và phù hợp với ngữ cảnh Việt Nam
+6. CHỈ trả về câu hỏi đã viết lại, KHÔNG giải thích thêm
+
+Ví dụ:
+Lịch sử: "User: Thủ tục ly hôn như thế nào?\nAssistant: Thủ tục ly hôn theo quy định..."
+Câu hỏi: "Còn chi phí thì sao?"
+Kết quả: "Chi phí thủ tục ly hôn theo pháp luật Việt Nam là bao nhiêu?"
+
+Câu hỏi đã viết lại:"""
+
     openai_messages = [
-        {"role": "system", "content": "You are an amazing virtual assistant"},
+        {"role": "system", "content": "Bạn là chuyên gia tư vấn pháp luật Việt Nam, giỏi phân tích và làm rõ câu hỏi pháp lý."},
         {"role": "user", "content": user_prompt}
     ]
     logger.info(f"Rephrase input messages: {openai_messages}")
-    # call openai
-    return openai_chat_complete(openai_messages)
+    
+    try:
+        rephrased = openai_chat_complete(openai_messages)
+        logger.info(f"Rephrased question: {rephrased}")
+        return rephrased.strip()
+    except Exception as e:
+        logger.error(f"Error rephrasing question: {e}")
+        return message
 
 
 
 def detect_route(history, message):
-    logger.info(f"Detect route on history messages: {history}")
-    # Update documents to prompt
-    user_prompt = f"""
-    Given the following chat history and the user's latest message, determine whether the user's intent is to ask for a frequently asked question ("bank_faq") or to inquire about loans and savings ("loan_savings") or to play some games ("play_game"). \n
-    Provide only the classification label as your response.
-
-    Chat History:
-    {history}
-
-    Latest User Message:
-    {message}
-
-    Classification (choose either "bank_faq" or "loan_savings" or "play_game"):
     """
+    Detect the appropriate tool/route for handling the user's query.
+    Enhanced for Vietnamese legal chatbot with better routing options.
+    
+    Routes:
+    - legal_rag: Questions about Vietnamese laws, regulations, legal procedures (uses RAG system)
+    - web_search: Current events, recent legal changes, specific cases requiring internet search
+    - general_chat: Greetings, small talk, off-topic conversations
+    """
+    logger.info(f"Detect route on history messages: {history}")
+    
+    # Format history for better context
+    history_text = ""
+    if history and len(history) > 1:
+        for msg in history[-4:]:  # Last 2 exchanges
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "user":
+                history_text += f"Người dùng: {content}\n"
+            elif role == "assistant":
+                history_text += f"Trợ lý: {content}\n"
+    
+    # Improved prompt for Vietnamese legal context
+    user_prompt = f"""Bạn là hệ thống phân loại truy vấn cho chatbot tư vấn pháp luật Việt Nam. Nhiệm vụ của bạn là xác định công cụ phù hợp nhất để xử lý câu hỏi của người dùng.
+
+Lịch sử hội thoại (nếu có):
+{history_text}
+
+Câu hỏi mới nhất của người dùng:
+{message}
+
+CÁC CÔNG CỤ KHẢ DỤNG:
+
+1. "legal_rag" - Sử dụng khi:
+   - Hỏi về luật pháp, quy định, nghị định, thông tư của Việt Nam
+   - Hỏi về thủ tục pháp lý (ly hôn, thành lập doanh nghiệp, đăng ký đất đai, v.v.)
+   - Hỏi về quyền và nghĩa vụ pháp lý
+   - Hỏi về xử lý vi phạm, hình phạt, quy định pháp luật
+   - Câu hỏi về điều khoản cụ thể trong văn bản pháp luật
+   Ví dụ: "Thủ tục ly hôn như thế nào?", "Luật doanh nghiệp quy định gì về trách nhiệm của giám đốc?"
+
+2. "web_search" - Sử dụng khi:
+   - Hỏi về tin tức pháp luật gần đây, mới cập nhật
+   - Hỏi về các vụ án cụ thể đang diễn ra
+   - Cần thông tin thời sự hoặc thống kê hiện tại
+   - Tìm kiếm văn bản pháp luật mới ban hành
+   Ví dụ: "Luật mới về giao thông vừa được thông qua có gì?", "Tìm thông tin về vụ án X"
+
+3. "general_chat" - Sử dụng khi:
+   - Chào hỏi, xã giao (xin chào, cảm ơn, tạm biệt)
+   - Hỏi về khả năng của chatbot
+   - Câu hỏi không liên quan đến pháp luật
+   - Trò chuyện chung chung
+   Ví dụ: "Xin chào", "Bạn có thể giúp gì cho tôi?", "Thời tiết hôm nay thế nào?"
+
+HƯỚNG DẪN:
+- Phân tích kỹ ý định của người dùng
+- Xem xét ngữ cảnh từ lịch sử hội thoại
+- Ưu tiên "legal_rag" cho mọi câu hỏi về pháp luật Việt Nam
+- CHỈ chọn "web_search" khi cần thông tin thời sự hoặc cập nhật gần đây
+- CHỈ trả về MỘT trong ba từ khóa: "legal_rag", "web_search", hoặc "general_chat"
+- KHÔNG giải thích, KHÔNG thêm bất kỳ văn bản nào khác
+
+Phân loại:"""
+
     openai_messages = [
-        {"role": "system", "content": "You are a highly intelligent assistant that helps classify customer queries"},
+        {"role": "system", "content": "Bạn là hệ thống phân loại truy vấn chính xác cho chatbot pháp luật. Chỉ trả về một trong ba giá trị: legal_rag, web_search, general_chat"},
         {"role": "user", "content": user_prompt}
     ]
-    logger.info(f"Route output: {openai_messages}")
-    # call openai
-    return openai_chat_complete(openai_messages)
+    logger.info(f"Routing query: {message}")
+    
+    try:
+        route = openai_chat_complete(openai_messages).strip().lower()
+        
+        # Validate route
+        valid_routes = ["legal_rag", "web_search", "general_chat"]
+        if route not in valid_routes:
+            # Try to extract valid route from response
+            for valid_route in valid_routes:
+                if valid_route in route:
+                    route = valid_route
+                    break
+            else:
+                # Default to legal_rag for legal chatbot
+                logger.warning(f"Invalid route '{route}', defaulting to 'legal_rag'")
+                route = "legal_rag"
+        
+        logger.info(f"Detected route: {route}")
+        return route
+        
+    except Exception as e:
+        logger.error(f"Error detecting route: {e}")
+        # Default to legal_rag
+        return "legal_rag"
 
 
 def get_financial_tools():
