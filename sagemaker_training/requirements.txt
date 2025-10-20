@@ -1,0 +1,12 @@
+torch>=1.13.0
+sentence-transformers>=2.2.0
+transformers>=4.21.0
+boto3>=1.26.0
+pandas>=1.5.0
+numpy>=1.23.0
+scikit-learn>=1.1.0
+datasets>=2.5.0
+accelerate>=0.13.0
+tokenizers>=0.13.0
+qdrant-client>=1.6.0
+sagemaker>=2.190.0
