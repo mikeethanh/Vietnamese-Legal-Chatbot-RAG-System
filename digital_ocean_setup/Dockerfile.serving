@@ -1,0 +1,34 @@
+# Dockerfile cho serving embedding model
+FROM python:3.10-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    wget \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements và install Python dependencies
+COPY requirements_serving.txt .
+RUN pip install --no-cache-dir -r requirements_serving.txt
+
+# Copy serving script
+COPY embedding_server.py .
+
+# Create directories
+RUN mkdir -p /tmp/model
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV TOKENIZERS_PARALLELISM=false
+ENV PORT=5000
+
+# Expose port
+EXPOSE 5000
+
+# Default command
+CMD ["python", "embedding_server.py"]
