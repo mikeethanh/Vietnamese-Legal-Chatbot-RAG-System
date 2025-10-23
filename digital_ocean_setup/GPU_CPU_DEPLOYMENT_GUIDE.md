@@ -225,7 +225,7 @@ EOF
 # Tạo Dockerfile.gpu-training với CUDA version mới nhất
 cat > Dockerfile.gpu-training << 'EOF'
 # GPU Training Dockerfile - Updated for latest CUDA
-FROM nvidia/cuda:12.2-devel-ubuntu22.04
+FROM nvidia/cuda:13.0.1-base-ubuntu22.04 
 
 # Set working directory
 WORKDIR /app
@@ -316,20 +316,34 @@ if torch.cuda.is_available():
 
 ### 6.4. Run training với GPU (method 1: Direct run)
 ```bash
+# Đảm bảo đang ở đúng thư mục
+cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
+
+# Load environment variables
+source .env
+
+# Run training với full config từ .env
 docker run --gpus all \
   --name legal-gpu-training \
   -v $(pwd)/data:/tmp/data \
   -v $(pwd)/models:/tmp/model \
   -v $(pwd)/logs:/tmp/logs \
-  -v $(pwd)/.env:/app/.env \
+  -v $(pwd)/.env:/app/.env:ro \
   -e SPACES_ACCESS_KEY="$SPACES_ACCESS_KEY" \
   -e SPACES_SECRET_KEY="$SPACES_SECRET_KEY" \
   -e SPACES_ENDPOINT="$SPACES_ENDPOINT" \
   -e SPACES_BUCKET="$SPACES_BUCKET" \
   -e BASE_MODEL="$BASE_MODEL" \
+  -e MODEL_PATH="$MODEL_PATH" \
   -e EPOCHS="$EPOCHS" \
   -e GPU_BATCH_SIZE="$GPU_BATCH_SIZE" \
   -e LEARNING_RATE="$LEARNING_RATE" \
+  -e WARMUP_STEPS="$WARMUP_STEPS" \
+  -e MAX_SEQ_LENGTH="$MAX_SEQ_LENGTH" \
+  -e GRADIENT_ACCUMULATION_STEPS="$GRADIENT_ACCUMULATION_STEPS" \
+  -e USE_FP16="$USE_FP16" \
+  -e USE_GPU="$USE_GPU" \
+  -e CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES" \
   -e MAX_SAMPLES="$MAX_SAMPLES" \
   --rm \
   legal-embedding-gpu:latest

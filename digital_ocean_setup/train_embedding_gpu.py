@@ -181,10 +181,11 @@ class GPUOptimizedTrainer:
             tokenizer = AutoTokenizer.from_pretrained(self.args.base_model)
             transformer_model = AutoModel.from_pretrained(self.args.base_model)
             
-            # Tạo SentenceTransformer wrapper
+            # Tạo SentenceTransformer wrapper với config max_seq_length
+            max_seq_length = getattr(self.args, 'max_seq_length', 512)
             word_embedding_model = models.Transformer(
                 model_name_or_path=self.args.base_model,
-                max_seq_length=512
+                max_seq_length=max_seq_length
             )
             pooling_model = models.Pooling(
                 word_embedding_model.get_word_embedding_dimension(),
@@ -252,22 +253,32 @@ class GPUOptimizedTrainer:
             name='legal-eval'
         )
         
-        # Training với monitoring
+        # Training với H100 optimizations
         start_time = time.time()
         
-        warmup_steps = int(len(train_dataloader) * 0.1)
+        # Use warmup steps from config
+        warmup_steps = getattr(self.args, 'warmup_steps', int(len(train_dataloader) * 0.1))
         logger.info(f"🔥 Warmup steps: {warmup_steps}")
+        
+        # Use learning rate from config
+        learning_rate = getattr(self.args, 'learning_rate', 2e-5)
+        logger.info(f"📈 Learning rate: {learning_rate}")
+        
+        # Use FP16 setting from config
+        use_amp = getattr(self.args, 'use_fp16', True)
+        logger.info(f"⚡ Mixed precision: {use_amp}")
         
         model.fit(
             train_objectives=[(train_dataloader, train_loss)],
             evaluator=evaluator,
             epochs=self.args.epochs,
-            evaluation_steps=100,  # Evaluate ít hơn để tăng tốc
+            evaluation_steps=max(50, len(train_dataloader) // 10),  # Adaptive evaluation
             warmup_steps=warmup_steps,
+            optimizer_params={'lr': learning_rate},  # Custom learning rate
             output_path=self.args.output_dir,
             save_best_model=True,
             show_progress_bar=True,
-            use_amp=True,  # Automatic Mixed Precision
+            use_amp=use_amp,  # Use config FP16 setting
         )
         
         training_time = time.time() - start_time
@@ -327,8 +338,8 @@ def main():
     parser = argparse.ArgumentParser(description='GPU Training for Vietnamese Legal Embedding')
     
     # Model arguments
-    parser.add_argument('--base-model', default='VietAI/viet-electra-base',
-                       help='Base model for fine-tuning (recommended: VietAI/viet-electra-base)')
+    parser.add_argument('--base-model', default=os.getenv('BASE_MODEL', 'VietAI/viet-electra-base'),
+                       help='Base model for fine-tuning')
     parser.add_argument('--model-type', default='auto', 
                        choices=['auto', 'electra', 'phobert', 'mpnet', 'e5'],
                        help='Model type for specific optimizations')
@@ -337,25 +348,67 @@ def main():
     parser.add_argument('--output-dir', default='/tmp/model',
                        help='Directory to save trained model')
     
-    # Training arguments
-    parser.add_argument('--epochs', type=int, default=5,
+    # Training arguments - Read from environment variables
+    parser.add_argument('--epochs', type=int, default=int(os.getenv('EPOCHS', '5')),
                        help='Number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=32,
+    parser.add_argument('--batch-size', type=int, default=int(os.getenv('GPU_BATCH_SIZE', '32')),
                        help='Batch size for training (higher for GPU)')
-    parser.add_argument('--max-samples', type=int, default=None,
+    parser.add_argument('--max-samples', type=int, 
+                       default=int(os.getenv('MAX_SAMPLES', '0')) if os.getenv('MAX_SAMPLES') else None,
                        help='Maximum number of samples to use')
     
-    # Digital Ocean Spaces arguments
-    parser.add_argument('--spaces-access-key', required=True,
+    # Digital Ocean Spaces arguments - Read from environment variables with fallback
+    parser.add_argument('--spaces-access-key', 
+                       default=os.getenv('SPACES_ACCESS_KEY'),
                        help='Digital Ocean Spaces access key')
-    parser.add_argument('--spaces-secret-key', required=True,
+    parser.add_argument('--spaces-secret-key', 
+                       default=os.getenv('SPACES_SECRET_KEY'),
                        help='Digital Ocean Spaces secret key')
-    parser.add_argument('--spaces-endpoint', default='https://sgp1.digitaloceanspaces.com',
+    parser.add_argument('--spaces-endpoint', 
+                       default=os.getenv('SPACES_ENDPOINT', 'https://sgp1.digitaloceanspaces.com'),
                        help='Digital Ocean Spaces endpoint')
-    parser.add_argument('--spaces-bucket', default='legal-datalake',
+    parser.add_argument('--spaces-bucket', 
+                       default=os.getenv('SPACES_BUCKET', 'legal-datalake'),
                        help='Digital Ocean Spaces bucket name')
     
     args = parser.parse_args()
+    
+    # Validate required environment variables
+    if not args.spaces_access_key:
+        logger.error("❌ SPACES_ACCESS_KEY is required! Set it in environment or pass --spaces-access-key")
+        raise ValueError("SPACES_ACCESS_KEY is missing")
+    
+    if not args.spaces_secret_key:
+        logger.error("❌ SPACES_SECRET_KEY is required! Set it in environment or pass --spaces-secret-key")
+        raise ValueError("SPACES_SECRET_KEY is missing")
+    
+    # Apply H100 GPU optimizations from environment
+    use_fp16 = os.getenv('USE_FP16', 'true').lower() == 'true'
+    learning_rate = float(os.getenv('LEARNING_RATE', '1e-5'))
+    warmup_steps = int(os.getenv('WARMUP_STEPS', '1000'))
+    max_seq_length = int(os.getenv('MAX_SEQ_LENGTH', '512'))
+    gradient_accumulation_steps = int(os.getenv('GRADIENT_ACCUMULATION_STEPS', '4'))
+    
+    # Add H100 optimizations to args
+    args.use_fp16 = use_fp16
+    args.learning_rate = learning_rate
+    args.warmup_steps = warmup_steps
+    args.max_seq_length = max_seq_length
+    args.gradient_accumulation_steps = gradient_accumulation_steps
+    
+    # Log configuration
+    logger.info("🔧 Training Configuration:")
+    logger.info(f"   Base Model: {args.base_model}")
+    logger.info(f"   Epochs: {args.epochs}")
+    logger.info(f"   Batch Size: {args.batch_size}")
+    logger.info(f"   Max Samples: {args.max_samples}")
+    logger.info(f"   Learning Rate: {args.learning_rate}")
+    logger.info(f"   Warmup Steps: {args.warmup_steps}")
+    logger.info(f"   Max Seq Length: {args.max_seq_length}")
+    logger.info(f"   Use FP16: {args.use_fp16}")
+    logger.info(f"   Gradient Accumulation: {args.gradient_accumulation_steps}")
+    logger.info(f"   Spaces Bucket: {args.spaces_bucket}")
+    logger.info(f"   Output Dir: {args.output_dir}")
     
     # Create output directories
     os.makedirs(args.data_dir, exist_ok=True)

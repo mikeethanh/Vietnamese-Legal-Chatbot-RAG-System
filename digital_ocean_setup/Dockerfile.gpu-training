@@ -1,8 +1,5 @@
-# GPU Training Dockerfile - Optimized for NVIDIA V100
-FROM nvidia/cuda:11.8-devel-ubuntu22.04
-
-# Set non-interactive frontend
-ENV DEBIAN_FRONTEND=noninteractive
+# GPU Training Dockerfile - Updated for latest CUDA
+FROM nvidia/cuda:13.0.1-base-ubuntu22.04 
 
 # Set working directory
 WORKDIR /app
@@ -10,8 +7,8 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     python3.10 \
-    python3.10-pip \
-    python3.10-venv \
+    python3-pip \
+    python3.10-dev \
     git \
     curl \
     wget \
@@ -26,30 +23,24 @@ RUN ln -sf /usr/bin/pip3 /usr/bin/pip
 # Upgrade pip
 RUN python -m pip install --upgrade pip
 
-# Install PyTorch with CUDA support
-RUN pip install --no-cache-dir torch==2.0.1+cu118 torchvision==0.15.2+cu118 torchaudio==2.0.2+cu118 \
-    --index-url https://download.pytorch.org/whl/cu118
+# Copy requirements và install Python dependencies
+COPY requirements_gpu.txt requirements.txt
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy requirements và install other dependencies
-COPY requirements_gpu.txt .
-RUN pip install --no-cache-dir -r requirements_gpu.txt
-
-# Copy training scripts
+# Copy training script
 COPY train_embedding_gpu.py .
-COPY embedding_adapter.py .
+COPY .env .env
 
 # Create directories
 RUN mkdir -p /tmp/data /tmp/model /tmp/logs
 
-# Set environment variables for GPU optimization
+# Set environment variables
 ENV PYTHONPATH=/app
 ENV TOKENIZERS_PARALLELISM=false
 ENV CUDA_VISIBLE_DEVICES=0
-ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-ENV CUDA_LAUNCH_BLOCKING=0
-
-# GPU memory optimization
-ENV CUDA_MEMORY_FRACTION=0.9
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 # Default command
 CMD ["python", "train_embedding_gpu.py"]
