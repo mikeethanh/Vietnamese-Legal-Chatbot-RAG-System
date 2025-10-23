@@ -136,7 +136,7 @@ gpu_train() {
         --spaces-secret-key "$SPACES_SECRET_KEY" \
         --spaces-endpoint "$SPACES_ENDPOINT" \
         --spaces-bucket "$SPACES_BUCKET" \
-        --base-model "${BASE_MODEL:-VietAI/viet-electra-base}" \
+        --base-model "${BASE_MODEL:-BAAI/bge-m3}" \
         --epochs ${EPOCHS:-5} \
         --batch-size ${GPU_BATCH_SIZE:-32} \
         --max-samples ${MAX_SAMPLES:-}
@@ -367,8 +367,9 @@ Examples:
     $0 estimate-cost
 
 Model Options:
-    VietAI/viet-electra-base (recommended for Vietnamese legal)
+    BAAI/bge-m3 (recommended multilingual model)
     intfloat/multilingual-e5-large (best quality, needs more GPU)
+    VietAI/viet-electra-base (Vietnamese specific)
     vinai/phobert-base-v2 (stable Vietnamese option)
 EOF
 }
