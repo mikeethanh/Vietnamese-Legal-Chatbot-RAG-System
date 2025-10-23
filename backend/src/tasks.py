@@ -157,6 +157,7 @@ def bot_route_answer_message(history, question):
     
     Routes:
     - legal_rag: Use RAG system for legal questions
+    - agent_tools: Use ReAct agent with tools for calculations and validations
     - web_search: Use Google search for current events
     - general_chat: Handle with simple conversation
     """
@@ -166,7 +167,21 @@ def bot_route_answer_message(history, question):
     
     if route == 'legal_rag':
         # Use RAG system for legal questions
+        logger.info("Using RAG system for legal knowledge retrieval")
         return bot_rag_answer_message(history, question)
+    
+    elif route == 'agent_tools':
+        # Use ReAct agent with tools for complex queries
+        logger.info("Using ReAct agent with tools")
+        
+        # Rephrase question if it's a follow-up
+        standalone_question = follow_up_question(history, question)
+        
+        # Use agent to handle the question
+        agent_response = ai_agent_handle(standalone_question)
+        
+        logger.info("Agent response generated")
+        return agent_response
     
     elif route == 'web_search':
         # Use web search for current information
@@ -198,7 +213,13 @@ Hãy tổng hợp và trả lời câu hỏi dựa trên kết quả tìm kiếm
         logger.info("Using general chat")
         
         system_prompt = """Bạn là trợ lý AI thân thiện của hệ thống tư vấn pháp luật Việt Nam. 
-Hãy trả lời lịch sự và hướng dẫn người dùng về các câu hỏi pháp luật bạn có thể giúp đỡ."""
+Hãy trả lời lịch sự và hướng dẫn người dùng về các câu hỏi pháp luật bạn có thể giúp đỡ.
+
+Bạn có thể:
+- Trả lời câu hỏi về luật pháp Việt Nam
+- Tính toán phí phạt, chia thừa kế, kiểm tra tuổi pháp lý
+- Tìm kiếm thông tin pháp luật mới trên internet
+- Hướng dẫn thủ tục pháp lý"""
         
         openai_messages = [
             {"role": "system", "content": system_prompt}

@@ -113,11 +113,12 @@ Câu hỏi đã viết lại:"""
 def detect_route(history, message):
     """
     Detect the appropriate tool/route for handling the user's query.
-    Enhanced for Vietnamese legal chatbot with better routing options.
+    Enhanced for Vietnamese legal chatbot with 4 routing options including agent tools.
     
     Routes:
-    - legal_rag: Questions about Vietnamese laws, regulations, legal procedures (uses RAG system)
-    - web_search: Current events, recent legal changes, specific cases requiring internet search
+    - legal_rag: Questions about Vietnamese laws, regulations (uses RAG system with vector search)
+    - agent_tools: Questions requiring calculation, validation, or complex reasoning (uses ReAct agent)
+    - web_search: Current events, recent legal changes requiring internet search
     - general_chat: Greetings, small talk, off-topic conversations
     """
     logger.info(f"Detect route on history messages: {history}")
@@ -133,51 +134,64 @@ def detect_route(history, message):
             elif role == "assistant":
                 history_text += f"Trợ lý: {content}\n"
     
-    # Improved prompt for Vietnamese legal context
-    user_prompt = f"""Bạn là hệ thống phân loại truy vấn cho chatbot tư vấn pháp luật Việt Nam. Nhiệm vụ của bạn là xác định công cụ phù hợp nhất để xử lý câu hỏi của người dùng.
+    # Improved prompt with agent_tools route
+    user_prompt = f"""Bạn là hệ thống định tuyến thông minh cho chatbot tư vấn pháp luật Việt Nam. Phân tích câu hỏi và chọn công cụ phù hợp nhất.
 
-Lịch sử hội thoại (nếu có):
+Lịch sử hội thoại:
 {history_text}
 
-Câu hỏi mới nhất của người dùng:
+Câu hỏi hiện tại:
 {message}
 
 CÁC CÔNG CỤ KHẢ DỤNG:
 
-1. "legal_rag" - Sử dụng khi:
-   - Hỏi về luật pháp, quy định, nghị định, thông tư của Việt Nam
-   - Hỏi về thủ tục pháp lý (ly hôn, thành lập doanh nghiệp, đăng ký đất đai, v.v.)
-   - Hỏi về quyền và nghĩa vụ pháp lý
-   - Hỏi về xử lý vi phạm, hình phạt, quy định pháp luật
-   - Câu hỏi về điều khoản cụ thể trong văn bản pháp luật
-   Ví dụ: "Thủ tục ly hôn như thế nào?", "Luật doanh nghiệp quy định gì về trách nhiệm của giám đốc?"
+1. "legal_rag" - Hệ thống RAG tra cứu văn bản pháp luật
+   Sử dụng khi:
+   - Hỏi về nội dung luật, nghị định, thông tư, quyết định
+   - Hỏi về thủ tục pháp lý (ly hôn, thành lập DN, đăng ký đất đai)
+   - Hỏi về quyền lợi, nghĩa vụ, trách nhiệm pháp lý
+   - Câu hỏi về điều khoản cụ thể trong văn bản
+   - Giải thích khái niệm pháp lý
+   Ví dụ: "Thủ tục ly hôn theo Bộ luật Dân sự?", "Quyền của người lao động theo Luật Lao động?"
 
-2. "web_search" - Sử dụng khi:
-   - Hỏi về tin tức pháp luật gần đây, mới cập nhật
-   - Hỏi về các vụ án cụ thể đang diễn ra
-   - Cần thông tin thời sự hoặc thống kê hiện tại
-   - Tìm kiếm văn bản pháp luật mới ban hành
-   Ví dụ: "Luật mới về giao thông vừa được thông qua có gì?", "Tìm thông tin về vụ án X"
+2. "agent_tools" - Agent với công cụ tính toán và xác thực
+   Sử dụng khi:
+   - Tính toán: phạt hợp đồng, chia thừa kế, lãi suất, chi phí
+   - Kiểm tra: tuổi pháp lý, tên doanh nghiệp, thời hiệu khởi kiện
+   - Câu hỏi dạng "tính", "kiểm tra", "có hợp lệ không", "có đủ tuổi không"
+   - Cần xử lý số liệu và logic phức tạp
+   - Cần sử dụng nhiều bước suy luận
+   Ví dụ: "Tính tiền phạt hợp đồng 100 triệu chậm 30 ngày với lãi 0.1%/ngày", "Năm sinh 2005 có đủ tuổi ký hợp đồng không?"
 
-3. "general_chat" - Sử dụng khi:
-   - Chào hỏi, xã giao (xin chào, cảm ơn, tạm biệt)
-   - Hỏi về khả năng của chatbot
-   - Câu hỏi không liên quan đến pháp luật
-   - Trò chuyện chung chung
-   Ví dụ: "Xin chào", "Bạn có thể giúp gì cho tôi?", "Thời tiết hôm nay thế nào?"
+3. "web_search" - Tìm kiếm web cho thông tin mới
+   Sử dụng khi:
+   - Tin tức, sự kiện pháp luật gần đây (trong vài tháng gần nhất)
+   - Vụ án cụ thể đang diễn ra
+   - Thống kê, số liệu hiện tại (GDP, lương tối thiểu, lạm phát)
+   - Văn bản pháp luật MỚI vừa ban hành
+   - Từ khóa: "mới nhất", "gần đây", "hiện nay", "năm 2024", "vừa ban hành"
+   Ví dụ: "Luật Đất đai 2024 có gì mới?", "Lương tối thiểu vùng 1 năm 2024"
 
-HƯỚNG DẪN:
-- Phân tích kỹ ý định của người dùng
-- Xem xét ngữ cảnh từ lịch sử hội thoại
-- Ưu tiên "legal_rag" cho mọi câu hỏi về pháp luật Việt Nam
-- CHỈ chọn "web_search" khi cần thông tin thời sự hoặc cập nhật gần đây
-- CHỈ trả về MỘT trong ba từ khóa: "legal_rag", "web_search", hoặc "general_chat"
-- KHÔNG giải thích, KHÔNG thêm bất kỳ văn bản nào khác
+4. "general_chat" - Trò chuyện thông thường
+   Sử dụng khi:
+   - Chào hỏi: "xin chào", "hello", "hi"
+   - Cảm ơn: "cảm ơn", "thanks"
+   - Hỏi về bot: "bạn là ai", "bạn làm được gì"
+   - Off-topic: không liên quan pháp luật (thời tiết, thể thao, giải trí)
+   Ví dụ: "Xin chào", "Bạn có thể giúp gì?", "Cảm ơn bạn"
+
+HƯỚNG DẪN PHÂN LOẠI:
+1. Phân tích ý định chính của câu hỏi
+2. Xác định xem cần tính toán/kiểm tra (→ agent_tools) hay tra cứu văn bản (→ legal_rag)
+3. Nếu cần thông tin thời sự → web_search
+4. Ưu tiên: agent_tools (có tính toán) > legal_rag (tra cứu) > web_search (tin mới) > general_chat
+5. CHỈ trả về MỘT trong bốn giá trị: "legal_rag", "agent_tools", "web_search", "general_chat"
+6. KHÔNG giải thích, KHÔNG thêm văn bản khác
 
 Phân loại:"""
 
     openai_messages = [
-        {"role": "system", "content": "Bạn là hệ thống phân loại truy vấn chính xác cho chatbot pháp luật. Chỉ trả về một trong ba giá trị: legal_rag, web_search, general_chat"},
+        {"role": "system", "content": "Bạn là hệ thống định tuyến chính xác. Chỉ trả về một trong bốn giá trị: legal_rag, agent_tools, web_search, general_chat"},
         {"role": "user", "content": user_prompt}
     ]
     logger.info(f"Routing query: {message}")
@@ -186,7 +200,7 @@ Phân loại:"""
         route = openai_chat_complete(openai_messages).strip().lower()
         
         # Validate route
-        valid_routes = ["legal_rag", "web_search", "general_chat"]
+        valid_routes = ["legal_rag", "agent_tools", "web_search", "general_chat"]
         if route not in valid_routes:
             # Try to extract valid route from response
             for valid_route in valid_routes:
@@ -194,9 +208,18 @@ Phân loại:"""
                     route = valid_route
                     break
             else:
-                # Default to legal_rag for legal chatbot
-                logger.warning(f"Invalid route '{route}', defaulting to 'legal_rag'")
-                route = "legal_rag"
+                # Default logic based on keywords
+                message_lower = message.lower()
+                
+                # Check for calculation/validation keywords
+                calc_keywords = ["tính", "kiểm tra", "hợp lệ", "đủ tuổi", "chia", "phạt", "thời hiệu"]
+                if any(kw in message_lower for kw in calc_keywords):
+                    logger.warning(f"Invalid route '{route}', detected calculation keywords, using 'agent_tools'")
+                    route = "agent_tools"
+                else:
+                    # Default to legal_rag for legal questions
+                    logger.warning(f"Invalid route '{route}', defaulting to 'legal_rag'")
+                    route = "legal_rag"
         
         logger.info(f"Detected route: {route}")
         return route

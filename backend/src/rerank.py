@@ -16,21 +16,60 @@ def rerank_documents(docs, query, top_n=3, rank_model=DEFAULT_RANK_MODEL):
     """
     Rerank documents based on the query
     """
-    process_docs = [
-        doc['title'] + ' ' + doc['content']
-        for doc in docs
-    ]
-    results = co.rerank(
-        query=query,
-        documents=process_docs,
-        top_n=top_n,
-        model=rank_model
-    )
-    for item in results.results:
-        print(f"Document Index: {item.index}")
-        print(f"Document: {docs[item.index]}")
-        print(f"Relevance Score: {item.relevance_score:.5f}")
-
-    ranked_docs = [docs[item.index] for item in results.results]
-
-    return ranked_docs
+    # Kiểm tra nếu docs trống hoặc query trống thì return luôn
+    if not docs:
+        print("[RERANK] Docs list is empty, skipping rerank")
+        return []
+    
+    if not query or not query.strip():
+        print("[RERANK] Query is empty, returning original docs without rerank")
+        return docs[:top_n]
+    
+    # Kiểm tra API key
+    if not COHERE_API_KEY:
+        print("[RERANK] COHERE_API_KEY not found, returning original docs")
+        return docs[:top_n]
+    
+    try:
+        # Tạo process_docs và lọc ra documents rỗng
+        process_docs = []
+        valid_doc_indices = []
+        
+        for idx, doc in enumerate(docs):
+            title = doc.get('title', '') or ''
+            content = doc.get('content', '') or ''
+            combined = f"{title} {content}".strip()
+            
+            if combined:  # Chỉ thêm nếu có nội dung
+                process_docs.append(combined)
+                valid_doc_indices.append(idx)
+        
+        # Nếu không có document hợp lệ nào
+        if not process_docs:
+            print("[RERANK] No valid documents to rerank")
+            return docs[:top_n]
+        
+        print(f"[RERANK] Reranking {len(process_docs)} documents with query: '{query[:50]}...'")
+        
+        results = co.rerank(
+            query=query,
+            documents=process_docs,
+            top_n=min(top_n, len(process_docs)),
+            model=rank_model
+        )
+        
+        # Map lại index từ process_docs về docs gốc
+        ranked_docs = []
+        for item in results.results:
+            original_idx = valid_doc_indices[item.index]
+            doc = docs[original_idx].copy()
+            doc['relevance_score'] = item.relevance_score
+            ranked_docs.append(doc)
+            print(f"[RERANK] Doc {original_idx}: {doc.get('title', 'No title')[:50]} - Score: {item.relevance_score:.5f}")
+        
+        return ranked_docs
+        
+    except Exception as e:
+        print(f"[RERANK] Error during reranking: {e}")
+        print(f"[RERANK] Returning original docs without rerank")
+        return docs[:top_n]
