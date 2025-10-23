@@ -70,7 +70,7 @@ class GPUOptimizedTrainer:
             aws_access_key_id=self.args.spaces_access_key,
             aws_secret_access_key=self.args.spaces_secret_key,
             endpoint_url=self.args.spaces_endpoint,
-            region_name='sgp1'
+            region_name='sfo3'
         )
         
     def monitor_resources(self):
@@ -212,6 +212,12 @@ class GPUOptimizedTrainer:
             logger.info("🌐 Applying E5 optimizations")
             # E5 models work better with instruction-style training
             
+        elif 'bge-m3' in self.args.base_model.lower():
+            logger.info("🔥 Applying BGE-M3 optimizations")
+            # BGE-M3 specific optimizations for multilingual embedding
+            model._first_module().auto_model.config.hidden_dropout_prob = 0.1
+            model._first_module().auto_model.config.attention_probs_dropout_prob = 0.1
+            
         return model
         
     def train_model(self, data_path: str):
@@ -338,7 +344,7 @@ def main():
     parser = argparse.ArgumentParser(description='GPU Training for Vietnamese Legal Embedding')
     
     # Model arguments
-    parser.add_argument('--base-model', default=os.getenv('BASE_MODEL', 'VietAI/viet-electra-base'),
+    parser.add_argument('--base-model', default=os.getenv('BASE_MODEL', 'BAAI/bge-m3'),
                        help='Base model for fine-tuning')
     parser.add_argument('--model-type', default='auto', 
                        choices=['auto', 'electra', 'phobert', 'mpnet', 'e5'],
@@ -365,7 +371,7 @@ def main():
                        default=os.getenv('SPACES_SECRET_KEY'),
                        help='Digital Ocean Spaces secret key')
     parser.add_argument('--spaces-endpoint', 
-                       default=os.getenv('SPACES_ENDPOINT', 'https://sgp1.digitaloceanspaces.com'),
+                       default=os.getenv('SPACES_ENDPOINT', 'https://legal-datalake.sfo3.digitaloceanspaces.com'),
                        help='Digital Ocean Spaces endpoint')
     parser.add_argument('--spaces-bucket', 
                        default=os.getenv('SPACES_BUCKET', 'legal-datalake'),
