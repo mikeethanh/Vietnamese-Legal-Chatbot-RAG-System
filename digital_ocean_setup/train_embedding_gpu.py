@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Simplified GPU training script for Vietnamese Legal documents on Digital Ocean
-Optimized for NVIDIA V100/H100 GPU
+Simple and robust GPU training script for Vietnamese Legal documents
+Optimized for stability and ease of use
 """
 
 import os
@@ -9,301 +9,317 @@ import json
 import logging
 import time
 import torch
-from torch.utils.data import DataLoader
+import boto3
+from datetime import datetime
 from sentence_transformers import SentenceTransformer, InputExample, losses
 from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
-import boto3
+from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 import random
-from datetime import datetime
 
-# Simple logging setup
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('training.log'),
+        logging.FileHandler('/tmp/logs/training.log'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-class SimpleTrainer:
-    """Simplified trainer for Digital Ocean GPU"""
+def check_gpu():
+    """Check GPU availability"""
+    if not torch.cuda.is_available():
+        logger.error("❌ CUDA not available!")
+        exit(1)
     
-    def __init__(self, spaces_access_key, spaces_secret_key, spaces_bucket):
-        self.spaces_bucket = spaces_bucket
-        self.setup_gpu()
-        self.setup_spaces_client(spaces_access_key, spaces_secret_key)
-        
-    def setup_gpu(self):
-        """Setup GPU environment"""
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA not available!")
-            
-        self.device = torch.device('cuda:0')
-        gpu_props = torch.cuda.get_device_properties(0)
-        
-        logger.info(f"🚀 GPU: {gpu_props.name}")
-        logger.info(f"🚀 GPU Memory: {gpu_props.total_memory / 1e9:.1f} GB")
-        
-        # GPU optimizations
-        torch.backends.cudnn.benchmark = True
-        torch.cuda.empty_cache()
-        
-    def setup_spaces_client(self, access_key, secret_key):
-        """Setup Digital Ocean Spaces client"""
-        endpoint_url = os.getenv('SPACES_ENDPOINT', 'https://sfo3.digitaloceanspaces.com')
-        region =  'sfo3'
-        
-        self.spaces_client = boto3.client(
-            's3',
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            endpoint_url=endpoint_url,
-            region_name=region
-        )
-        
-    def download_data(self, data_dir):
-        """Download training data from Spaces"""
-        os.makedirs(data_dir, exist_ok=True)
-        corpus_local_path = os.path.join(data_dir, 'merged_corpus.jsonl')
-        
-        try:
-            logger.info("📥 Downloading training data...")
-            self.spaces_client.download_file(
-                self.spaces_bucket,
-                'process_data/rag_corpus/merged_corpus.jsonl',
-                corpus_local_path
-            )
-            logger.info(f"✅ Downloaded to {corpus_local_path}")
-            return corpus_local_path
-        except Exception as e:
-            logger.error(f"❌ Download failed: {e}")
-            raise
-            
-    def create_training_dataset(self, data_path, max_samples=None):
-        """Create training dataset from corpus"""
-        logger.info("🔧 Creating training dataset...")
-        
-        texts = []
-        with open(data_path, 'r', encoding='utf-8') as f:
-            for i, line in enumerate(f):
-                if max_samples and i >= max_samples:
-                    break
-                    
-                try:
-                    data = json.loads(line.strip())
-                    if 'content' in data and len(data['content'].strip()) > 20:
-                        texts.append(data['content'].strip())
-                except json.JSONDecodeError:
-                    continue
-                    
-        logger.info(f"📚 Loaded {len(texts)} texts")
-        
-        # Create training examples
-        examples = []
-        
-        # Sequential pairs with high similarity
-        for i in range(0, len(texts) - 1, 2):
-            if i + 1 < len(texts):
-                examples.append(InputExample(
-                    texts=[texts[i], texts[i + 1]], 
-                    label=0.8
-                ))
-        
-        # Random pairs with low similarity  
-        num_negative = min(len(examples), 1000)  # Limit negative samples
-        for _ in range(num_negative):
-            idx1, idx2 = random.sample(range(len(texts)), 2)
-            examples.append(InputExample(
-                texts=[texts[idx1], texts[idx2]], 
-                label=0.2
-            ))
-        
-        random.shuffle(examples)
-        logger.info(f"🎯 Created {len(examples)} training examples")
-        
-        return examples
-        
-    def load_model(self, base_model):
-        """Load SentenceTransformer model"""
-        logger.info(f"🤖 Loading model: {base_model}")
-        
-        try:
-            model = SentenceTransformer(base_model)
-            model.to(self.device)
-            logger.info("✅ Model loaded successfully")
-            return model
-        except Exception as e:
-            logger.error(f"❌ Failed to load model: {e}")
-            raise
-        
-    def train_model(self, base_model, data_path, output_dir, epochs=3, batch_size=32, learning_rate=2e-5, max_samples=None):
-        """Train embedding model"""
-        logger.info("🚀 Starting training...")
-        
-        # Load model
-        model = self.load_model(base_model)
-        
-        # Create dataset
-        train_examples = self.create_training_dataset(data_path, max_samples)
-        
-        # Split train/validation
-        train_examples, val_examples = train_test_split(
-            train_examples, 
-            test_size=0.1, 
-            random_state=42
-        )
-        
-        # DataLoader
-        train_dataloader = DataLoader(
-            train_examples, 
-            shuffle=True, 
-            batch_size=batch_size
-        )
-        
-        # Loss function
-        train_loss = losses.CosineSimilarityLoss(model)
-        
-        # Evaluator (smaller validation set)
-        evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
-            val_examples[:50],
-            name='legal-eval'
-        )
-        
-        # Training
-        start_time = time.time()
-        warmup_steps = int(len(train_dataloader) * 0.1)
-        
-        logger.info(f"🔥 Epochs: {epochs}, Batch size: {batch_size}, Learning rate: {learning_rate}")
-        
-        model.fit(
-            train_objectives=[(train_dataloader, train_loss)],
-            evaluator=evaluator,
-            epochs=epochs,
-            evaluation_steps=len(train_dataloader) // 2,
-            warmup_steps=warmup_steps,
-            optimizer_params={'lr': learning_rate},
-            output_path=output_dir,
-            save_best_model=True,
-            show_progress_bar=True,
-            use_amp=True  # Mixed precision
-        )
-        
-        training_time = time.time() - start_time
-        logger.info(f"⏱️ Training completed in {training_time:.1f} seconds")
-        
-        return model
-        
-    def upload_model(self, output_dir, base_model, epochs, batch_size):
-        """Upload trained model to Spaces"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        s3_prefix = f"models/embedding_model_gpu_{timestamp}"
-        
-        logger.info(f"📤 Uploading model to {s3_prefix}...")
-        
-        # Upload all files in output directory
-        for root, dirs, files in os.walk(output_dir):
-            for file in files:
-                local_path = os.path.join(root, file)
-                relative_path = os.path.relpath(local_path, output_dir)
-                s3_key = f"{s3_prefix}/{relative_path}"
-                
-                try:
-                    self.spaces_client.upload_file(local_path, self.spaces_bucket, s3_key)
-                    logger.info(f"✅ Uploaded {relative_path}")
-                except Exception as e:
-                    logger.error(f"❌ Upload failed {relative_path}: {e}")
-                    
-        # Upload metadata
-        metadata = {
-            "model_name": f"embedding_model_gpu_{timestamp}",
-            "base_model": base_model,
-            "training_date": timestamp,
-            "epochs": epochs,
-            "batch_size": batch_size,
-            "gpu_used": torch.cuda.get_device_name(),
-            "model_path": s3_prefix
-        }
-        
-        metadata_path = os.path.join(output_dir, 'metadata.json')
-        with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
-            
-        self.spaces_client.upload_file(
-            metadata_path,
-            self.spaces_bucket,
-            f"{s3_prefix}/metadata.json"
-        )
-        
-        logger.info(f"🎉 Model uploaded successfully to: {s3_prefix}")
-        return s3_prefix
+    device = torch.device('cuda:0')
+    gpu_name = torch.cuda.get_device_name(0)
+    gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
+    
+    logger.info(f"🚀 GPU: {gpu_name}")
+    logger.info(f"🚀 GPU Memory: {gpu_memory:.1f} GB")
+    
+    return device
 
-def main():
-    """Main training function with simplified configuration"""
+def setup_spaces_client():
+    """Setup Digital Ocean Spaces client"""
+    access_key = os.getenv('SPACES_ACCESS_KEY')
+    secret_key = os.getenv('SPACES_SECRET_KEY')
+    endpoint = os.getenv('SPACES_ENDPOINT', 'https://sfo3.digitaloceanspaces.com')
     
-    # Get configuration from environment variables
-    base_model = os.getenv('BASE_MODEL', 'BAAI/bge-m3')
-    epochs = int(os.getenv('EPOCHS', '3'))
-    batch_size = int(os.getenv('GPU_BATCH_SIZE', '32'))
-    learning_rate = float(os.getenv('LEARNING_RATE', '2e-5'))
-    max_samples = int(os.getenv('MAX_SAMPLES', '10000')) if os.getenv('MAX_SAMPLES') else None
+    if not access_key or not secret_key:
+        logger.error("❌ SPACES_ACCESS_KEY and SPACES_SECRET_KEY required!")
+        exit(1)
     
-    # Spaces configuration
-    spaces_access_key = os.getenv('SPACES_ACCESS_KEY')
-    spaces_secret_key = os.getenv('SPACES_SECRET_KEY')
-    spaces_bucket = os.getenv('SPACES_BUCKET', 'legal-datalake')
+    region = 'sgp1' if 'sgp1' in endpoint else 'sfo3'
     
-    # Directories
-    data_dir = '/tmp/data'
-    output_dir = '/tmp/model'
+    client = boto3.client(
+        's3',
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        endpoint_url=endpoint,
+        region_name=region
+    )
     
-    # Validate required environment variables
-    if not spaces_access_key:
-        logger.error("❌ SPACES_ACCESS_KEY is required!")
-        return
-    
-    if not spaces_secret_key:
-        logger.error("❌ SPACES_SECRET_KEY is required!")
-        return
-    
-    # Log configuration
-    logger.info("🔧 Training Configuration:")
-    logger.info(f"   Base Model: {base_model}")
-    logger.info(f"   Epochs: {epochs}")
-    logger.info(f"   Batch Size: {batch_size}")
-    logger.info(f"   Learning Rate: {learning_rate}")
-    logger.info(f"   Max Samples: {max_samples}")
-    logger.info(f"   Spaces Bucket: {spaces_bucket}")
-    
-    # Create directories
-    os.makedirs(data_dir, exist_ok=True)
-    os.makedirs(output_dir, exist_ok=True)
+    logger.info(f"✅ Connected to Spaces: {endpoint}")
+    return client
+
+def download_data(spaces_client, bucket_name):
+    """Download training data from Spaces"""
+    data_path = '/tmp/data/merged_corpus.jsonl'
+    os.makedirs('/tmp/data', exist_ok=True)
     
     try:
-        # Initialize trainer
-        trainer = SimpleTrainer(spaces_access_key, spaces_secret_key, spaces_bucket)
+        logger.info("📥 Downloading training data...")
+        spaces_client.download_file(
+            bucket_name,
+            'process_data/rag_corpus/merged_corpus.jsonl',
+            data_path
+        )
+        logger.info(f"✅ Downloaded to {data_path}")
+        return data_path
+    except Exception as e:
+        logger.error(f"❌ Download failed: {e}")
+        exit(1)
+
+def load_texts(data_path, max_samples=None):
+    """Load texts from JSONL file"""
+    logger.info("📚 Loading texts...")
+    
+    texts = []
+    text_key_found = None
+    skipped_count = 0
+    
+    with open(data_path, 'r', encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            if max_samples and i >= max_samples:
+                break
+            
+            try:
+                data = json.loads(line.strip())
+                
+                # Tự động detect key name từ sample đầu tiên
+                if text_key_found is None:
+                    if 'text' in data:
+                        text_key_found = 'text'
+                        logger.info("📄 Detected data format: using 'text' key")
+                    elif 'content' in data:
+                        text_key_found = 'content'
+                        logger.info("📄 Detected data format: using 'content' key")
+                    else:
+                        logger.warning(f"⚠️ No 'text' or 'content' key found. Available keys: {list(data.keys())}")
+                        continue
+                
+                # Lấy text content
+                text_content = data.get(text_key_found, '')
+                if text_content and len(text_content.strip()) > 20:
+                    texts.append(text_content.strip())
+                else:
+                    skipped_count += 1
+                    
+            except json.JSONDecodeError as e:
+                skipped_count += 1
+                if i < 5:  # Log first few decode errors
+                    logger.warning(f"⚠️ JSON decode error at line {i}: {e}")
+                continue
+    
+    logger.info(f"✅ Loaded {len(texts)} texts (skipped {skipped_count} invalid entries)")
+    if len(texts) == 0:
+        logger.error("❌ No valid texts found! Check your data format.")
+        exit(1)
+        
+    # Log sample text
+    if texts:
+        sample_text = texts[0][:100] + "..." if len(texts[0]) > 100 else texts[0]
+        logger.info(f"📝 Sample text: {sample_text}")
+    
+    return texts
+
+def create_training_examples(texts):
+    """Create training examples from texts"""
+    logger.info("🔧 Creating training examples...")
+    
+    examples = []
+    
+    # Positive pairs (sequential texts - similar)
+    for i in range(0, len(texts) - 1, 2):
+        if i + 1 < len(texts):
+            examples.append(InputExample(
+                texts=[texts[i], texts[i + 1]], 
+                label=0.8
+            ))
+    
+    # Negative pairs (random texts - dissimilar)
+    num_negative = min(len(examples), 1000)
+    for _ in range(num_negative):
+        idx1, idx2 = random.sample(range(len(texts)), 2)
+        examples.append(InputExample(
+            texts=[texts[idx1], texts[idx2]], 
+            label=0.2
+        ))
+    
+    random.shuffle(examples)
+    logger.info(f"✅ Created {len(examples)} training examples")
+    
+    return examples
+
+def train_model(model_name, examples, device, epochs=3, batch_size=16):
+    """Train the embedding model"""
+    logger.info(f"🤖 Loading model: {model_name}")
+    
+    # Load model
+    try:
+        model = SentenceTransformer(model_name)
+        model.to(device)
+        logger.info("✅ Model loaded successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to load model: {e}")
+        exit(1)
+    
+    # Split data
+    train_examples, val_examples = train_test_split(
+        examples, test_size=0.1, random_state=42
+    )
+    
+    logger.info(f"📊 Training examples: {len(train_examples)}")
+    logger.info(f"📊 Validation examples: {len(val_examples)}")
+    
+    # DataLoader
+    train_dataloader = DataLoader(
+        train_examples, 
+        shuffle=True, 
+        batch_size=batch_size
+    )
+    
+    # Loss function
+    train_loss = losses.CosineSimilarityLoss(model)
+    
+    # Evaluator (small set for speed)
+    evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
+        val_examples[:50], name='legal-eval'
+    )
+    
+    # Training
+    logger.info(f"🔥 Starting training...")
+    logger.info(f"   Epochs: {epochs}")
+    logger.info(f"   Batch size: {batch_size}")
+    
+    start_time = time.time()
+    
+    model.fit(
+        train_objectives=[(train_dataloader, train_loss)],
+        evaluator=evaluator,
+        epochs=epochs,
+        evaluation_steps=len(train_dataloader) // 2,
+        warmup_steps=int(len(train_dataloader) * 0.1),
+        output_path='/tmp/model',
+        save_best_model=True,
+        show_progress_bar=True
+    )
+    
+    training_time = time.time() - start_time
+    logger.info(f"⏱️ Training completed in {training_time:.1f} seconds")
+    
+    return model
+
+def upload_model(spaces_client, bucket_name, model_name):
+    """Upload trained model to Spaces"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    s3_prefix = f"models/embedding_model_gpu_{timestamp}"
+    
+    logger.info(f"📤 Uploading model to {s3_prefix}...")
+    
+    model_dir = '/tmp/model'
+    uploaded_files = []
+    
+    # Upload all files
+    for root, dirs, files in os.walk(model_dir):
+        for file in files:
+            local_path = os.path.join(root, file)
+            relative_path = os.path.relpath(local_path, model_dir)
+            s3_key = f"{s3_prefix}/{relative_path}"
+            
+            try:
+                spaces_client.upload_file(local_path, bucket_name, s3_key)
+                uploaded_files.append(relative_path)
+                logger.info(f"✅ Uploaded {relative_path}")
+            except Exception as e:
+                logger.error(f"❌ Upload failed {relative_path}: {e}")
+    
+    # Create and upload metadata
+    metadata = {
+        "model_name": f"embedding_model_gpu_{timestamp}",
+        "base_model": model_name,
+        "training_date": timestamp,
+        "gpu_used": torch.cuda.get_device_name(),
+        "model_path": s3_prefix,
+        "uploaded_files": uploaded_files
+    }
+    
+    metadata_path = os.path.join(model_dir, 'metadata.json')
+    with open(metadata_path, 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+    
+    spaces_client.upload_file(
+        metadata_path, bucket_name, f"{s3_prefix}/metadata.json"
+    )
+    
+    logger.info(f"🎉 Model uploaded successfully!")
+    logger.info(f"📍 Model path: {s3_prefix}")
+    
+    return s3_prefix
+
+def main():
+    """Main training function"""
+    logger.info("🚀 Starting Vietnamese Legal Embedding Training")
+    
+    # Configuration from environment
+    model_name = os.getenv('BASE_MODEL', 'BAAI/bge-m3')
+    epochs = int(os.getenv('EPOCHS', '3'))
+    batch_size = int(os.getenv('GPU_BATCH_SIZE', '16'))
+    max_samples = int(os.getenv('MAX_SAMPLES', '10000')) if os.getenv('MAX_SAMPLES') else None
+    bucket_name = os.getenv('SPACES_BUCKET', 'legal-datalake')
+    
+    logger.info(f"📋 Configuration:")
+    logger.info(f"   Model: {model_name}")
+    logger.info(f"   Epochs: {epochs}")
+    logger.info(f"   Batch size: {batch_size}")
+    logger.info(f"   Max samples: {max_samples}")
+    logger.info(f"   Bucket: {bucket_name}")
+    
+    try:
+        # Setup
+        device = check_gpu()
+        spaces_client = setup_spaces_client()
+        
+        # Create directories
+        os.makedirs('/tmp/data', exist_ok=True)
+        os.makedirs('/tmp/model', exist_ok=True)
+        os.makedirs('/tmp/logs', exist_ok=True)
         
         # Download data
-        logger.info("📥 Step 1: Downloading training data...")
-        data_path = trainer.download_data(data_dir)
+        data_path = download_data(spaces_client, bucket_name)
+        
+        # Load and prepare data
+        texts = load_texts(data_path, max_samples)
+        examples = create_training_examples(texts)
         
         # Train model
-        logger.info("🚀 Step 2: Training model...")
-        model = trainer.train_model(base_model, data_path, output_dir, epochs, batch_size, learning_rate, max_samples)
+        model = train_model(model_name, examples, device, epochs, batch_size)
         
         # Upload model
-        logger.info("📤 Step 3: Uploading trained model...")
-        model_path = trainer.upload_model(output_dir, base_model, epochs, batch_size)
-        
-        # Final summary
-        logger.info("🎉 Training completed successfully!")
-        logger.info(f"📍 Model saved at: {model_path}")
+        model_path = upload_model(spaces_client, bucket_name, model_name)
         
         # Clear GPU memory
         torch.cuda.empty_cache()
         
+        logger.info("🎉 Training completed successfully!")
+        logger.info(f"📍 Model available at: {model_path}")
+        
+    except KeyboardInterrupt:
+        logger.info("⚠️ Training interrupted by user")
     except Exception as e:
         logger.error(f"💥 Training failed: {e}")
         raise
