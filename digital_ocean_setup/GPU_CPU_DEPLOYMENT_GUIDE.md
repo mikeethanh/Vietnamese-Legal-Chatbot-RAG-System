@@ -441,7 +441,7 @@ nano .env
 # Digital Ocean Spaces Configuration
 SPACES_ACCESS_KEY=your_spaces_access_key_here
 SPACES_SECRET_KEY=your_spaces_secret_key_here
-SPACES_ENDPOINT=https://sgp1.digitaloceanspaces.com
+SPACES_ENDPOINT=https://sf03.digitaloceanspaces.com
 SPACES_BUCKET=legal-datalake
 
 # CPU Serving specific
