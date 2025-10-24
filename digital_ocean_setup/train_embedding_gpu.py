@@ -29,19 +29,36 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def check_gpu():
-    """Check GPU availability"""
+    """Check GPU availability and memory"""
     if not torch.cuda.is_available():
-        logger.error("❌ CUDA not available!")
+        logger.error("❌ CUDA not available")
         exit(1)
     
-    device = torch.device('cuda:0')
+    device = torch.device('cuda')
     gpu_name = torch.cuda.get_device_name(0)
-    gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
+    total_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
     
-    logger.info(f"🚀 GPU: {gpu_name}")
-    logger.info(f"🚀 GPU Memory: {gpu_memory:.1f} GB")
+    logger.info(f"� GPU: {gpu_name}")
+    logger.info(f"� Total VRAM: {total_memory:.1f}GB")
     
     return device
+
+def log_memory_usage(context):
+    """Log detailed memory usage with context"""
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / 1e9
+        cached = torch.cuda.memory_reserved() / 1e9
+        max_allocated = torch.cuda.max_memory_allocated() / 1e9
+        logger.info(f"📊 Memory [{context}]:")
+        logger.info(f"   Allocated: {allocated:.2f}GB")
+        logger.info(f"   Cached: {cached:.2f}GB") 
+        logger.info(f"   Peak: {max_allocated:.2f}GB")
+
+def monitor_memory(step_name):
+    """Monitor GPU memory usage"""
+    allocated = torch.cuda.memory_allocated() / 1e9
+    cached = torch.cuda.memory_reserved() / 1e9
+    logger.info(f"🔍 {step_name} - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
 
 def setup_spaces_client():
     """Setup Digital Ocean Spaces client"""
@@ -166,19 +183,43 @@ def create_training_examples(texts):
     return examples
 
 def train_model(model_name, examples, device, epochs=3, batch_size=16):
-    """Train the embedding model"""
+    """Train the embedding model with proper memory management"""
     logger.info(f"🤖 Loading model: {model_name}")
     
-    # Load model
+    # CRITICAL: Set memory optimization BEFORE loading model
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:128'
+    
+    # Clear ALL GPU memory first
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    
+    # Load model with memory optimization
     try:
-        model = SentenceTransformer(model_name)
-        model.to(device)
+        model = SentenceTransformer(model_name, device=device)
+        
+        # Enable gradient checkpointing for BGE-M3
+        if hasattr(model[0].auto_model, 'gradient_checkpointing_enable'):
+            model[0].auto_model.gradient_checkpointing_enable()
+            logger.info("✅ Gradient checkpointing enabled")
+        
+        # Enable mixed precision (FP16)
+        use_fp16 = os.getenv('USE_FP16', 'true').lower() == 'true'
+        if use_fp16:
+            model = model.half()
+            logger.info("✅ FP16 mode enabled")
+        
         logger.info("✅ Model loaded successfully")
+        
+        # Log memory usage after model loading
+        allocated = torch.cuda.memory_allocated() / 1e9
+        logger.info(f"🔍 GPU memory after model load: {allocated:.2f} GB")
+        
     except Exception as e:
         logger.error(f"❌ Failed to load model: {e}")
+        torch.cuda.empty_cache()
         exit(1)
     
-    # Split data
+    # Split data with memory consideration
     train_examples, val_examples = train_test_split(
         examples, test_size=0.1, random_state=42
     )
@@ -186,41 +227,90 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
     logger.info(f"📊 Training examples: {len(train_examples)}")
     logger.info(f"📊 Validation examples: {len(val_examples)}")
     
-    # DataLoader
+    # Memory-optimized DataLoader
     train_dataloader = DataLoader(
         train_examples, 
         shuffle=True, 
-        batch_size=batch_size
+        batch_size=batch_size,
+        num_workers=0,  # CRITICAL: Avoid multiprocessing memory issues
+        pin_memory=False  # Disable pin memory to save GPU memory
     )
     
     # Loss function
     train_loss = losses.CosineSimilarityLoss(model)
     
-    # Evaluator (small set for speed)
+    # Smaller evaluator to save memory
     evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
-        val_examples[:50], name='legal-eval'
+        val_examples[:20],  # Reduced from 50 to 20
+        name='legal-eval'
     )
     
-    # Training
+    # Training with memory optimization
     logger.info(f"🔥 Starting training...")
     logger.info(f"   Epochs: {epochs}")
     logger.info(f"   Batch size: {batch_size}")
     
     start_time = time.time()
     
-    model.fit(
-        train_objectives=[(train_dataloader, train_loss)],
-        evaluator=evaluator,
-        epochs=epochs,
-        evaluation_steps=len(train_dataloader) // 2,
-        warmup_steps=int(len(train_dataloader) * 0.1),
-        output_path='/tmp/model',
-        save_best_model=True,
-        show_progress_bar=True
-    )
+    # Clear cache before training
+    torch.cuda.empty_cache()
+    
+    try:
+        # Get additional memory optimization settings
+        max_seq_length = int(os.getenv('MAX_SEQ_LENGTH', '256'))
+        gradient_accumulation_steps = int(os.getenv('GRADIENT_ACCUMULATION_STEPS', '1'))
+        
+        # Training arguments with memory optimization
+        training_args = {
+            'train_objectives': [(train_dataloader, train_loss)],
+            'evaluator': evaluator,
+            'epochs': epochs,
+            'evaluation_steps': max(100, len(train_dataloader) // 4),  # Less frequent evaluation
+            'warmup_steps': int(len(train_dataloader) * 0.1),
+            'optimizer_params': {
+                'lr': float(os.getenv('LEARNING_RATE', '1e-5')),
+            },
+            'output_path': '/tmp/model',
+            'save_best_model': True,
+            'show_progress_bar': True,
+            'checkpoint_path': None,  # Disable checkpointing to save memory
+            'max_grad_norm': 1.0,  # Gradient clipping
+        }
+        
+        # Add FP16 training if enabled
+        if use_fp16:
+            training_args['use_amp'] = True
+        
+        model.fit(**training_args)
+        
+        # Clear cache after training
+        torch.cuda.empty_cache()
+        
+    except torch.cuda.OutOfMemoryError as e:
+        logger.error(f"💥 CUDA OOM Error: {e}")
+        logger.error("💡 Memory Debugging Info:")
+        logger.error(f"   - Allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+        logger.error(f"   - Reserved: {torch.cuda.memory_reserved() / 1e9:.2f} GB") 
+        logger.error("💡 Recommendations:")
+        logger.error(f"   - Current batch_size: {batch_size} → try batch_size=1")
+        logger.error(f"   - Current max_samples: {os.getenv('MAX_SAMPLES')} → try 10000")
+        logger.error("   - Enable gradient_accumulation_steps to maintain effective batch size")
+        
+        # Clean up memory
+        del model
+        torch.cuda.empty_cache()
+        raise
+    
+    except Exception as e:
+        logger.error(f"💥 Training error: {e}")
+        torch.cuda.empty_cache()
+        raise
     
     training_time = time.time() - start_time
     logger.info(f"⏱️ Training completed in {training_time:.1f} seconds")
+    
+    # Final memory cleanup
+    torch.cuda.empty_cache()
     
     return model
 
@@ -275,6 +365,9 @@ def main():
     """Main training function"""
     logger.info("🚀 Starting Vietnamese Legal Embedding Training")
     
+    # CRITICAL: Set memory optimization GLOBALLY before anything else
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:128'
+    
     # Configuration from environment
     model_name = os.getenv('BASE_MODEL', 'BAAI/bge-m3')
     epochs = int(os.getenv('EPOCHS', '3'))
@@ -288,10 +381,16 @@ def main():
     logger.info(f"   Batch size: {batch_size}")
     logger.info(f"   Max samples: {max_samples}")
     logger.info(f"   Bucket: {bucket_name}")
+    logger.info(f"   Memory optimization: ENABLED")
     
     try:
-        # Setup
+        # Setup GPU and clear memory first
         device = check_gpu()
+        
+        # Clear all GPU memory before starting
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        
         spaces_client = setup_spaces_client()
         
         # Create directories
@@ -312,16 +411,21 @@ def main():
         # Upload model
         model_path = upload_model(spaces_client, bucket_name, model_name)
         
-        # Clear GPU memory
+        # Final memory cleanup and logging
+        del model
         torch.cuda.empty_cache()
+        log_memory_usage("Final cleanup")
         
         logger.info("🎉 Training completed successfully!")
         logger.info(f"📍 Model available at: {model_path}")
         
     except KeyboardInterrupt:
         logger.info("⚠️ Training interrupted by user")
+        log_memory_usage("Interrupted state")
     except Exception as e:
         logger.error(f"💥 Training failed: {e}")
+        # Log memory state on error
+        log_memory_usage("Error state")
         raise
 
 if __name__ == "__main__":
