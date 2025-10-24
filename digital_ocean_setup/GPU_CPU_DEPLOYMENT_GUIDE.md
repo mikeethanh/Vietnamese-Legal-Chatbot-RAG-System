@@ -441,38 +441,78 @@ nano .env
 # Digital Ocean Spaces Configuration
 SPACES_ACCESS_KEY=your_spaces_access_key_here
 SPACES_SECRET_KEY=your_spaces_secret_key_here
-SPACES_ENDPOINT=https://sf03.digitaloceanspaces.com
+SPACES_ENDPOINT=https://sfo3.digitaloceanspaces.com
 SPACES_BUCKET=legal-datalake
 
 # CPU Serving specific
 USE_GPU=false
-MODEL_PATH=models/embedding_model_YYYYMMDD_HHMMSS  # Từ GPU training
+# MODEL_PATH sẽ được lấy từ kết quả training GPU ở bước 6
+# Ví dụ: models/embedding_model_gpu_20241024_143022
+# Bạn sẽ lấy path này từ logs của GPU training hoặc check trong Spaces
+MODEL_PATH=  # Để trống, sẽ cập nhật sau khi có kết quả training
 PORT=5000
 BATCH_SIZE=16  # Thấp hơn cho CPU
 ```
+
+**📋 Cách lấy MODEL_PATH:**
+1. **Từ GPU training logs:** Khi training xong, script sẽ in ra path như:
+   ```
+   🎉 Model uploaded successfully to: models/embedding_model_gpu_20241024_143022
+   ```
+2. **Từ Digital Ocean Spaces:** Vào Spaces dashboard → legal-datalake → models → copy tên folder mới nhất
+3. **Từ deploy script:** Script `deploy.sh` có thể tự động detect latest model
 
 ---
 
 ## Bước 8: Transfer Model từ GPU sang CPU Droplet
 
-### 8.1. Sau khi training xong trên GPU
+### 8.1. Sau khi training xong trên GPU - Lấy MODEL_PATH
 
 **Trên GPU Droplet:**
 ```bash
 # Kiểm tra model đã upload lên Spaces
 ls -la /tmp/model/
-# Ghi lại model path trên Spaces
+
+# Ghi lại model path từ training logs
+tail -n 20 /tmp/logs/training.log | grep "Model uploaded successfully"
+# Kết quả sẽ là: 🎉 Model uploaded successfully to: models/embedding_model_gpu_20241024_143022
+
+# Hoặc check trực tiếp trên Spaces bằng AWS CLI
+aws s3 ls s3://legal-datalake/models/ --endpoint-url=https://sgp1.digitaloceanspaces.com
 ```
 
-### 8.2. Download model trên CPU Droplet
+**📝 Ghi lại MODEL_PATH:** `models/embedding_model_gpu_YYYYMMDD_HHMMSS`
+
+**Ví dụ:** `models/embedding_model_gpu_20241024_143022`
+
+### 8.2. Cập nhật MODEL_PATH và deploy trên CPU Droplet
 
 **Trên CPU Droplet:**
+```bash
+# Cập nhật MODEL_PATH trong .env file với path từ bước 8.1
+nano .env
+
+# Thêm MODEL_PATH vào file .env:
+# MODEL_PATH=models/embedding_model_gpu_20241024_143022  # Thay bằng path thật từ bước 8.1
+
+# Hoặc dùng sed để cập nhật nhanh
+sed -i 's|MODEL_PATH=.*|MODEL_PATH=models/embedding_model_gpu_20241024_143022|g' .env
+
+# Verify cấu hình
+grep MODEL_PATH .env
+```
+
+### 8.3. Deploy serving services
 ```bash
 # Build serving image
 docker-compose build embedding-server
 
-# Deploy serving services
+# Deploy serving services  
 ./deploy.sh deploy
+
+# Hoặc dùng script tự động download latest model
+./deploy.sh download  # Tự động tìm model mới nhất
+./deploy.sh deploy    # Deploy với model mới
 ```
 
 ---

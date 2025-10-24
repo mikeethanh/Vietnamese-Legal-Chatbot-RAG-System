@@ -26,7 +26,7 @@ RUN python -m pip install --upgrade pip
 # Copy requirements và install Python dependencies
 COPY requirements_gpu.txt requirements.txt
 # Install PyTorch 2.6+ with CUDA 12.1 support
-RUN pip install --no-cache-dir torch>=2.6.0 torchvision>=0.19.0 torchaudio>=2.6.0 --index-url https://download.pytorch.org/whl/cu121
+RUN pip install --no-cache-dir torch>=2.6.0 torchvision>=0.21.0 
 # Install other requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
