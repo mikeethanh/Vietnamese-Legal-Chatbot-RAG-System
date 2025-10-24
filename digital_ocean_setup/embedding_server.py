@@ -16,6 +16,14 @@ from datetime import datetime
 import zipfile
 import tempfile
 
+# Import sklearn at module level to avoid import errors
+try:
+    from sklearn.metrics.pairwise import cosine_similarity
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    logging.warning("scikit-learn not available. Some features may be limited.")
+
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,12 +44,15 @@ class EmbeddingServer:
         
     def _init_spaces_client(self):
         """Initialize Digital Ocean Spaces client"""
+        endpoint_url = os.getenv('SPACES_ENDPOINT', 'https://sgp1.digitaloceanspaces.com')
+        region = 'sgp1' if 'sgp1' in endpoint_url else 'sfo3'
+        
         return boto3.client(
             's3',
             aws_access_key_id=os.getenv('SPACES_ACCESS_KEY'),
             aws_secret_access_key=os.getenv('SPACES_SECRET_KEY'),
-            endpoint_url=os.getenv('SPACES_ENDPOINT', 'https://sgp1.digitaloceanspaces.com'),
-            region_name='sgp1'
+            endpoint_url=endpoint_url,
+            region_name=region
         )
         
     def download_model(self, model_s3_path: str, local_dir: str = '/tmp/model'):
@@ -174,7 +185,10 @@ def compute_similarity():
         embeddings2 = embedding_server.encode_texts(texts2)
         
         # Compute cosine similarity
-        from sklearn.metrics.pairwise import cosine_similarity
+        if not SKLEARN_AVAILABLE:
+            logger.error("scikit-learn not available!")
+            raise ImportError("Please install scikit-learn: pip install scikit-learn")
+        
         similarities = cosine_similarity(embeddings1, embeddings2)
         
         response = {

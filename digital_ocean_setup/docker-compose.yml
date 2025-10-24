@@ -8,11 +8,13 @@ services:
       dockerfile: Dockerfile.serving
     ports:
       - "5000:5000"
+    env_file:
+      - .env
     environment:
       - SPACES_ACCESS_KEY=${SPACES_ACCESS_KEY}
       - SPACES_SECRET_KEY=${SPACES_SECRET_KEY}
-      - SPACES_ENDPOINT=${SPACES_ENDPOINT}
-      - SPACES_BUCKET=${SPACES_BUCKET}
+      - SPACES_ENDPOINT=${SPACES_ENDPOINT:-https://sgp1.digitaloceanspaces.com}
+      - SPACES_BUCKET=${SPACES_BUCKET:-legal-datalake}
       - MODEL_PATH=${MODEL_PATH}
       - PORT=5000
     volumes:
