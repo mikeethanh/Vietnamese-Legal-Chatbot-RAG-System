@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
 """
 Simple and robust GPU training script for Vietnamese Legal documents
-Optimized for stability and ease of use
-
-FP16 Configuration:
-- Uses Automatic Mixed Precision (AMP) instead of model.half() 
-- Automatically falls back to FP32 if FP16 fails
-- Set USE_FP16=false to disable FP16 entirely
-- Reduced default batch size to 8 for better memory management
+Optimized for stability and ease of use - FP32 training only
 """
 
 import os
@@ -208,11 +202,6 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
             model[0].auto_model.gradient_checkpointing_enable()
             logger.info("✅ Gradient checkpointing enabled")
         
-        # Check if FP16 is enabled (but don't convert model here)
-        use_fp16 = os.getenv('USE_FP16', 'true').lower() == 'true'
-        if use_fp16:
-            logger.info("✅ FP16 mode enabled (using AMP)")
-        
         logger.info("✅ Model loaded successfully")
         
         # Log memory usage after model loading
@@ -237,7 +226,7 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
         train_examples, 
         shuffle=True, 
         batch_size=batch_size,
-        num_workers=0,  # CRITICAL: Avoid multiprocessing memory issues
+        num_workers=2,  # CRITICAL: Avoid multiprocessing memory issues
         pin_memory=False  # Disable pin memory to save GPU memory
     )
     
@@ -282,29 +271,9 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
             'max_grad_norm': 1.0,  # Gradient clipping
         }
         
-        # Add FP16 training if enabled (using Automatic Mixed Precision)
-        if use_fp16:
-            training_args['use_amp'] = True
-            # Additional safety measures for FP16
-            training_args['fp16_opt_level'] = 'O1'  # Conservative mixed precision
+        # Simple training without FP16 complications
         
-        try:
-            model.fit(**training_args)
-        except (ValueError, RuntimeError) as fp16_error:
-            if "FP16" in str(fp16_error) or "unscale" in str(fp16_error):
-                logger.warning(f"⚠️ FP16 training failed: {fp16_error}")
-                logger.info("🔄 Falling back to FP32 training...")
-                
-                # Remove FP16 settings and retry
-                training_args.pop('use_amp', None)
-                training_args.pop('fp16_opt_level', None)
-                
-                # Clear cache and retry
-                torch.cuda.empty_cache()
-                model.fit(**training_args)
-                logger.info("✅ Successfully trained with FP32 fallback")
-            else:
-                raise fp16_error
+        model.fit(**training_args)
         
         # Clear cache after training
         torch.cuda.empty_cache()
