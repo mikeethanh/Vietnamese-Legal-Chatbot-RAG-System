@@ -79,26 +79,6 @@ ssh root@GPU_DROPLET_IP
 nvidia-smi
 ```
 
-**Kết quả mong muốn:**
-```
-+-----------------------------------------------------------------------------------------+
-| NVIDIA-SMI 580.xx.xx              Driver Version: 580.xx.xx      CUDA Version: 13.0     |
-+-----------------------------------------+------------------------+----------------------+
-| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
-| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
-|                                         |                        |               MIG M. |
-|=========================================+========================+======================|
-|   0  NVIDIA H100 80GB HBM3          Off |   00000000:00:09.0 Off |                    0 |
-| N/A   29C    P0             68W /  700W |       0MiB /  81559MiB |      0%      Default |
-|                                         |                        |             Disabled |
-+-----------------------------------------+------------------------+----------------------+
-```
-
-🎉 **TUYỆT VỜI! Bạn có GPU H100 - Top tier GPU hiện tại!**
-- **Memory**: 80GB (vs 16GB V100) → Có thể train batch size cực lớn
-- **Performance**: 3-4x nhanh hơn V100
-- **CUDA**: 13.0 (latest) → Hỗ trợ tất cả optimization mới nhất
-
 ### 3.4. Cài đặt Docker với GPU support
 ```bash
 # Install Docker
@@ -134,35 +114,6 @@ cp .env.template .env
 nano .env
 ```
 
-**Cập nhật file .env (thay YOUR_ACTUAL_KEYS bằng keys thật):**
-```bash
-# Digital Ocean Spaces Configuration
-SPACES_ACCESS_KEY=YOUR_ACTUAL_SPACES_ACCESS_KEY
-SPACES_SECRET_KEY=YOUR_ACTUAL_SPACES_SECRET_KEY
-SPACES_ENDPOINT=https://sgp1.digitaloceanspaces.com
-SPACES_BUCKET=legal-datalake
-
-# VietAI ELECTRA Model Configuration
-BASE_MODEL=VietAI/viet-electra-base
-MODEL_PATH=models/embedding_model_latest
-
-# H100 GPU Optimized Training Parameters
-EPOCHS=8
-GPU_BATCH_SIZE=128
-LEARNING_RATE=1e-5
-WARMUP_STEPS=1000
-MAX_SEQ_LENGTH=512
-GRADIENT_ACCUMULATION_STEPS=4
-USE_FP16=true
-
-# GPU Configuration
-USE_GPU=true
-CUDA_VISIBLE_DEVICES=0
-
-# General Parameters
-MAX_SAMPLES=50000
-```
-
 ### 4.3. Tạo thư mục cần thiết
 ```bash
 mkdir -p data models logs
@@ -178,102 +129,10 @@ mkdir -p data models logs
 ls -la train_embedding_gpu.py
 ```
 
-**Nếu file không tồn tại, download từ repository:**
-```bash
-# Đảm bảo có file training script
-if [ ! -f "train_embedding_gpu.py" ]; then
-    echo "❌ File train_embedding_gpu.py không tìm thấy!"
-    echo "📥 Vui lòng đảm bảo repository được clone đầy đủ"
-    exit 1
-fi
-```
-
 ### 5.2. Kiểm tra requirements file
 ```bash
 # Sử dụng requirements_gpu.txt cho GPU training
 ls -la requirements_gpu.txt
-
-# Nếu không có, tạo requirements file
-cat > requirements_gpu.txt << 'EOF'
-# GPU Training Requirements - Optimized for NVIDIA V100/H100
-torch>=2.0.1
-sentence-transformers>=2.3.0
-transformers>=4.30.0
-accelerate>=0.20.0
-datasets>=2.10.0
-
-# Core ML libraries
-numpy>=1.24.0
-scikit-learn>=1.3.0
-pandas>=2.0.0
-
-# Cloud storage
-boto3>=1.26.0
-botocore>=1.29.0
-
-# Monitoring and logging
-psutil>=5.9.0
-
-# Utilities
-tqdm>=4.65.0
-requests>=2.31.0
-EOF
-```
-
-### 5.3. Build GPU Docker Image (cập nhật với CUDA 12.2)
-```bash
-# Tạo Dockerfile.gpu-training với CUDA version mới nhất
-cat > Dockerfile.gpu-training << 'EOF'
-# GPU Training Dockerfile - Updated for latest CUDA
-FROM nvidia/cuda:13.0.1-base-ubuntu22.04 
-
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    python3.10 \
-    python3-pip \
-    python3.10-dev \
-    git \
-    curl \
-    wget \
-    build-essential \
-    software-properties-common \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create symbolic links
-RUN ln -sf /usr/bin/python3.10 /usr/bin/python
-RUN ln -sf /usr/bin/pip3 /usr/bin/pip
-
-# Upgrade pip
-RUN python -m pip install --upgrade pip
-
-# Copy requirements và install Python dependencies
-COPY requirements_gpu.txt requirements.txt
-RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy training script
-COPY train_embedding_gpu.py .
-COPY .env .env
-
-# Create directories
-RUN mkdir -p /tmp/data /tmp/model /tmp/logs
-
-# Set environment variables
-ENV PYTHONPATH=/app
-ENV TOKENIZERS_PARALLELISM=false
-ENV CUDA_VISIBLE_DEVICES=0
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
-
-# Default command
-CMD ["python", "train_embedding_gpu.py"]
-EOF
-```
-
----
 
 ## Bước 6: Training trên GPU Droplet
 
@@ -349,14 +208,6 @@ docker run --gpus all \
   legal-embedding-gpu:latest
 ```
 
-### 6.5. Alternative: Run với script automation
-```bash
-# Sử dụng automation script
-./gpu_cpu_deploy.sh gpu-train
-
-# Hoặc auto-train cho toàn bộ workflow
-./gpu_cpu_deploy.sh auto-train
-```
 
 ### 6.6. Monitor training (trong terminal khác)
 ```bash
