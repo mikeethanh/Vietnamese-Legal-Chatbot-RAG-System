@@ -44,7 +44,7 @@ class EmbeddingServer:
         
     def _init_spaces_client(self):
         """Initialize Digital Ocean Spaces client"""
-        endpoint_url = os.getenv('SPACES_ENDPOINT', 'https://sgp1.digitaloceanspaces.com')
+        endpoint_url = os.getenv('SPACES_ENDPOINT', 'https://sfo3.digitaloceanspaces.com')
         region = 'sgp1' if 'sgp1' in endpoint_url else 'sfo3'
         
         return boto3.client(
