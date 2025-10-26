@@ -195,10 +195,13 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
     try:
         model = SentenceTransformer(model_name, device=device)
         
-        # Enable gradient checkpointing for BGE-M3
-        if hasattr(model[0].auto_model, 'gradient_checkpointing_enable'):
+        # Disable gradient checkpointing for faster training
+        use_gradient_checkpointing = os.getenv('USE_GRADIENT_CHECKPOINTING', 'false').lower() == 'true'
+        if use_gradient_checkpointing and hasattr(model[0].auto_model, 'gradient_checkpointing_enable'):
             model[0].auto_model.gradient_checkpointing_enable()
             logger.info("✅ Gradient checkpointing enabled")
+        else:
+            logger.info("ℹ️ Gradient checkpointing disabled (faster training)")
         
         logger.info("✅ Model loaded successfully")
         
@@ -219,13 +222,16 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
     logger.info(f"📊 Training examples: {len(train_examples)}")
     logger.info(f"📊 Validation examples: {len(val_examples)}")
     
-    # Memory-optimized DataLoader
+    # Get num_workers from environment variable or use default
+    num_workers = int(os.getenv('DATALOADER_NUM_WORKERS', '4'))
+    
+    # Memory-optimized DataLoader with configurable workers
     train_dataloader = DataLoader(
         train_examples, 
         shuffle=True, 
         batch_size=batch_size,
-        num_workers=2,  # CRITICAL: Avoid multiprocessing memory issues
-        pin_memory=False  # Disable pin memory to save GPU memory
+        num_workers=num_workers,  # Increased from 2 for better data loading performance
+        pin_memory=True  # Enable pin memory for faster GPU transfer
     )
     
     # Loss function
@@ -241,6 +247,8 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
     logger.info(f"🔥 Starting training...")
     logger.info(f"   Epochs: {epochs}")
     logger.info(f"   Batch size: {batch_size}")
+    logger.info(f"   Num workers: {num_workers}")
+    logger.info(f"   Gradient checkpointing: {use_gradient_checkpointing}")
     
     start_time = time.time()
     
