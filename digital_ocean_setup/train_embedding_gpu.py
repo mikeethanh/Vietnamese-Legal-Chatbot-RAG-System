@@ -155,22 +155,23 @@ def load_texts(data_path, max_samples=None):
     return texts
 
 def create_training_examples(texts):
-    """Create training examples from texts"""
     logger.info("🔧 Creating training examples...")
     
     examples = []
     
     # Positive pairs (sequential texts - similar)
+    positive_count = 0
     for i in range(0, len(texts) - 1, 2):
         if i + 1 < len(texts):
             examples.append(InputExample(
                 texts=[texts[i], texts[i + 1]], 
                 label=0.8
             ))
+            positive_count += 1
     
     # Negative pairs (random texts - dissimilar)
-    num_negative = min(len(examples), 1000)
-    for _ in range(num_negative):
+    negative_count = min(positive_count, 1000)  # Balance với positive
+    for _ in range(negative_count):
         idx1, idx2 = random.sample(range(len(texts)), 2)
         examples.append(InputExample(
             texts=[texts[idx1], texts[idx2]], 
@@ -178,7 +179,10 @@ def create_training_examples(texts):
         ))
     
     random.shuffle(examples)
+    
     logger.info(f"✅ Created {len(examples)} training examples")
+    logger.info(f"   📊 Positive pairs: {positive_count} (label=0.8)")
+    logger.info(f"   📊 Negative pairs: {negative_count} (label=0.2)")
     
     return examples
 
@@ -216,14 +220,43 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
     
     # Split data with memory consideration
     train_examples, val_examples = train_test_split(
-        examples, test_size=0.1, random_state=42
+        examples, test_size=0.1, random_state=42, stratify=None  # ✅ Không stratify vì chỉ có 2 labels
     )
     
     logger.info(f"📊 Training examples: {len(train_examples)}")
     logger.info(f"📊 Validation examples: {len(val_examples)}")
     
+    # ✅ ĐẢM BẢO validation set có CẢ positive VÀ negative examples
+    val_labels = [ex.label for ex in val_examples]
+    unique_labels = set(val_labels)
+    
+    logger.info(f"🔍 Validation set labels: {unique_labels}")
+    
+    if len(unique_labels) < 2:
+        logger.warning("⚠️ Validation set chỉ có 1 loại label! Tạo lại balanced validation set...")
+        
+        # Tách positive và negative từ toàn bộ examples
+        positive_examples = [ex for ex in examples if ex.label > 0.5]
+        negative_examples = [ex for ex in examples if ex.label <= 0.5]
+        
+        # Lấy 50% positive, 50% negative cho validation
+        val_size = max(20, int(len(examples) * 0.1))
+        val_positive = random.sample(positive_examples, val_size // 2)
+        val_negative = random.sample(negative_examples, val_size // 2)
+        
+        val_examples = val_positive + val_negative
+        random.shuffle(val_examples)
+        
+        # Train set là phần còn lại
+        val_ids = {id(ex) for ex in val_examples}
+        train_examples = [ex for ex in examples if id(ex) not in val_ids]
+        
+        logger.info(f"✅ Recreated balanced validation set:")
+        logger.info(f"   📊 Positive: {len(val_positive)}")
+        logger.info(f"   📊 Negative: {len(val_negative)}")
+    
     # Get num_workers from environment variable or use default
-    num_workers = int(os.getenv('DATALOADER_NUM_WORKERS', '4'))
+    num_workers = int(os.getenv('DATALOADER_NUM_WORKERS', '8'))
     
     # Memory-optimized DataLoader with configurable workers
     train_dataloader = DataLoader(
