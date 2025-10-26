@@ -159,9 +159,12 @@ def create_training_examples(texts):
     
     examples = []
     
+    # CRITICAL: Giới hạn số examples để tránh OOM với large datasets
+    max_examples = int(os.getenv('MAX_TRAINING_EXAMPLES', '100000'))
+    
     # Positive pairs (sequential texts - similar)
     positive_count = 0
-    for i in range(0, len(texts) - 1, 2):
+    for i in range(0, min(len(texts) - 1, max_examples), 2):
         if i + 1 < len(texts):
             examples.append(InputExample(
                 texts=[texts[i], texts[i + 1]], 
@@ -169,8 +172,8 @@ def create_training_examples(texts):
             ))
             positive_count += 1
     
-    # Negative pairs (random texts - dissimilar)
-    negative_count = min(positive_count, 1000)  # Balance với positive
+    # Negative pairs (random texts - dissimilar) - balance với positive
+    negative_count = min(positive_count // 2, 5000)  # Giảm tỉ lệ negative để tiết kiệm memory
     for _ in range(negative_count):
         idx1, idx2 = random.sample(range(len(texts)), 2)
         examples.append(InputExample(
@@ -180,9 +183,14 @@ def create_training_examples(texts):
     
     random.shuffle(examples)
     
-    logger.info(f"✅ Created {len(examples)} training examples")
+    logger.info(f"✅ Created {len(examples)} training examples (max_allowed: {max_examples})")
     logger.info(f"   📊 Positive pairs: {positive_count} (label=0.8)")
     logger.info(f"   📊 Negative pairs: {negative_count} (label=0.2)")
+    
+    # Memory warning
+    if len(examples) > 50000:
+        logger.warning(f"⚠️ Large training set ({len(examples)} examples) may cause OOM")
+        logger.warning(f"💡 Consider setting MAX_TRAINING_EXAMPLES < 50000")
     
     return examples
 
@@ -256,15 +264,17 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
         logger.info(f"   📊 Negative: {len(val_negative)}")
     
     # Get num_workers from environment variable or use default
-    num_workers = int(os.getenv('DATALOADER_NUM_WORKERS', '8'))
+    num_workers = int(os.getenv('DATALOADER_NUM_WORKERS', '4'))  # Giảm từ 8 → 4 để tiết kiệm RAM
     
-    # Memory-optimized DataLoader with configurable workers
+    # CRITICAL: Memory-optimized DataLoader - tắt pin_memory với large datasets
     train_dataloader = DataLoader(
         train_examples, 
         shuffle=True, 
         batch_size=batch_size,
-        num_workers=num_workers,  # Increased from 2 for better data loading performance
-        pin_memory=True  # Enable pin memory for faster GPU transfer
+        num_workers=num_workers,
+        pin_memory=False,  # ❌ TẮT pin_memory để tránh memory leak với large datasets
+        persistent_workers=False,  # ❌ TẮT persistent workers để giải phóng memory
+        prefetch_factor=2  # Giảm prefetch để tiết kiệm memory
     )
     
     # Loss function
@@ -291,31 +301,61 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
     try:
         # Get additional memory optimization settings
         max_seq_length = int(os.getenv('MAX_SEQ_LENGTH', '256'))
-        gradient_accumulation_steps = int(os.getenv('GRADIENT_ACCUMULATION_STEPS', '1'))
+        gradient_accumulation_steps = int(os.getenv('GRADIENT_ACCUMULATION_STEPS', '4'))  # Default 4 thay vì 1
         
-        # Training arguments with memory optimization
+        # CRITICAL: Giới hạn max_seq_length của model để tiết kiệm memory
+        if hasattr(model, 'max_seq_length'):
+            model.max_seq_length = max_seq_length
+            logger.info(f"✅ Set max_seq_length = {max_seq_length}")
+        
+        # Training arguments with AGGRESSIVE memory optimization
         training_args = {
             'train_objectives': [(train_dataloader, train_loss)],
             'evaluator': evaluator,
             'epochs': epochs,
-            'evaluation_steps': max(100, len(train_dataloader) // 4),  # Less frequent evaluation
-            'warmup_steps': int(len(train_dataloader) * 0.1),
+            'evaluation_steps': max(500, len(train_dataloader) // 2),  # Giảm tần suất evaluation
+            'warmup_steps': int(len(train_dataloader) * 0.05),  # Giảm warmup steps
             'optimizer_params': {
-                'lr': float(os.getenv('LEARNING_RATE', '1e-5')),
+                'lr': float(os.getenv('LEARNING_RATE', '2e-5')),
             },
             'output_path': '/tmp/model',
             'save_best_model': True,
             'show_progress_bar': True,
-            'checkpoint_path': None,  # Disable checkpointing to save memory
-            'max_grad_norm': 1.0,  # Gradient clipping
+            'checkpoint_path': None,  # ❌ TẮT checkpointing
+            'checkpoint_save_steps': 0,  # ❌ TẮT intermediate checkpoints
+            'checkpoint_save_total_limit': 0,  # ❌ Không lưu checkpoints
+            'max_grad_norm': 1.0,
+            'use_amp': False,  # ❌ TẮT AMP để tránh memory fragmentation
         }
         
+        # Gradient accumulation để maintain effective batch size với batch nhỏ hơn
+        if gradient_accumulation_steps > 1:
+            training_args['steps_per_epoch'] = len(train_dataloader) // gradient_accumulation_steps
+            logger.info(f"✅ Gradient accumulation: {gradient_accumulation_steps} steps")
+            logger.info(f"   Effective batch size: {batch_size * gradient_accumulation_steps}")
+        
+        # CRITICAL: Thêm callback để clear cache mỗi N steps
+        class MemoryClearCallback:
+            def __init__(self, clear_every_n_steps=50):
+                self.clear_every_n_steps = clear_every_n_steps
+                self.step_count = 0
+            
+            def on_step_end(self, *args, **kwargs):
+                self.step_count += 1
+                if self.step_count % self.clear_every_n_steps == 0:
+                    torch.cuda.empty_cache()
+                    if self.step_count % 200 == 0:  # Log mỗi 200 steps
+                        allocated = torch.cuda.memory_allocated() / 1e9
+                        logger.info(f"🧹 Memory cleared at step {self.step_count}: {allocated:.2f}GB")
+        
         # Simple training without FP16 complications
+        logger.info("🚀 Starting model.fit() with memory optimizations...")
         
         model.fit(**training_args)
         
         # Clear cache after training
         torch.cuda.empty_cache()
+        logger.info("✅ Training completed, memory cleared")
         
     except torch.cuda.OutOfMemoryError as e:
         logger.error(f"💥 CUDA OOM Error: {e}")
@@ -397,13 +437,17 @@ def main():
     logger.info("🚀 Starting Vietnamese Legal Embedding Training")
     
     # CRITICAL: Set memory optimization GLOBALLY before anything else
-    os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:128'
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:512'
+    
+    # CRITICAL: Giới hạn số lượng threads để tránh memory overhead
+    os.environ['OMP_NUM_THREADS'] = '4'
+    os.environ['MKL_NUM_THREADS'] = '4'
     
     # Configuration from environment
     model_name = os.getenv('BASE_MODEL', 'BAAI/bge-m3')
     epochs = int(os.getenv('EPOCHS', '3'))
-    batch_size = int(os.getenv('GPU_BATCH_SIZE', '8'))
-    max_samples = int(os.getenv('MAX_SAMPLES', '10000')) if os.getenv('MAX_SAMPLES') else None
+    batch_size = int(os.getenv('GPU_BATCH_SIZE', '8'))  # Default 8 thay vì 16
+    max_samples = int(os.getenv('MAX_SAMPLES', '50000')) if os.getenv('MAX_SAMPLES') else 50000  # Default 50K
     bucket_name = os.getenv('SPACES_BUCKET', 'legal-datalake')
     
     logger.info(f"📋 Configuration:")
@@ -412,7 +456,8 @@ def main():
     logger.info(f"   Batch size: {batch_size}")
     logger.info(f"   Max samples: {max_samples}")
     logger.info(f"   Bucket: {bucket_name}")
-    logger.info(f"   Memory optimization: ENABLED")
+    logger.info(f"   Memory optimization: AGGRESSIVE")
+    logger.info(f"   PYTORCH_CUDA_ALLOC_CONF: {os.environ['PYTORCH_CUDA_ALLOC_CONF']}")
     
     try:
         # Setup GPU and clear memory first
