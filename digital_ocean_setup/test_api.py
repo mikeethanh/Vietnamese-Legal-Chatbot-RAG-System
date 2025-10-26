@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Script kiểm tra kết nối và test embedding API
+Updated for CPU serving deployment
 """
 
 import requests

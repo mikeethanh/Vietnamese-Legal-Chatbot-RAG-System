@@ -133,7 +133,7 @@ ls -la train_embedding_gpu.py
 ```bash
 # Sử dụng requirements_gpu.txt cho GPU training
 ls -la requirements_gpu.txt
-
+```
 ## Bước 6: Training trên GPU Droplet
 
 ### 6.1. Load environment variables
@@ -252,191 +252,363 @@ docker rm legal-gpu-training
 
 ---
 
-## Bước 7: Setup CPU Droplet cho Serving
+## Bước 7: Setup CPU Droplet và Download Model từ Spaces
 
 ### 7.1. Kết nối CPU Droplet
 ```bash
 ssh root@CPU_DROPLET_IP
 ```
 
-### 7.2. Setup CPU Droplet
+### 7.2. Cài đặt Docker
 ```bash
 # Update system
 apt update && apt upgrade -y
-
-# Install dependencies
-apt install -y git curl wget build-essential
 
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
 
-# Install Docker Compose
-curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
+# Verify Docker installation
+docker --version
+docker run hello-world
+```
 
-# Clone repository
+### 7.3. Clone repository
+```bash
 cd /root
 git clone https://github.com/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System.git
 cd Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
 ```
 
-### 7.3. Cấu hình environment
+### 7.4. Cấu hình environment cho serving
 ```bash
-cp .env.template .env
-nano .env
+# Copy template
+cp .env.serving.template .env.serving
+
+# Edit với thông tin của bạn
+nano .env.serving
 ```
 
-**Cập nhật .env cho CPU serving:**
+**Cần điền các thông tin sau trong `.env.serving`:**
 ```bash
-# Digital Ocean Spaces Configuration
-SPACES_ACCESS_KEY=your_spaces_access_key_here
-SPACES_SECRET_KEY=your_spaces_secret_key_here
-SPACES_ENDPOINT=https://sfo3.digitaloceanspaces.com
+SPACES_ACCESS_KEY=your_access_key_here
+SPACES_SECRET_KEY=your_secret_key_here
+SPACES_ENDPOINT=https://sgp1.digitaloceanspaces.com
 SPACES_BUCKET=legal-datalake
 
-# CPU Serving specific
-USE_GPU=false
-# MODEL_PATH sẽ được lấy từ kết quả training GPU ở bước 6
-# Ví dụ: models/embedding_model_gpu_20241024_143022
-# Bạn sẽ lấy path này từ logs của GPU training hoặc check trong Spaces
-MODEL_PATH=  # Để trống, sẽ cập nhật sau khi có kết quả training
-PORT=5000
-BATCH_SIZE=16  # Thấp hơn cho CPU
+# Để trống để tự động lấy model mới nhất
+MODEL_PATH=
+
+# API config
+API_HOST=0.0.0.0
+API_PORT=5000
+MAX_BATCH_SIZE=32
 ```
 
-**📋 Cách lấy MODEL_PATH:**
-1. **Từ GPU training logs:** Khi training xong, script sẽ in ra path như:
-   ```
-   🎉 Model uploaded successfully to: models/embedding_model_gpu_20241024_143022
-   ```
-2. **Từ Digital Ocean Spaces:** Vào Spaces dashboard → legal-datalake → models → copy tên folder mới nhất
-3. **Từ deploy script:** Script `deploy.sh` có thể tự động detect latest model
+### 7.5. Download model từ Spaces
+```bash
+# Load environment variables
+source .env.serving
+
+# Tạo thư mục models
+mkdir -p models logs
+
+# Download model (sẽ tự động lấy model mới nhất)
+python3 download_model_from_spaces.py
+
+# Verify model đã download
+ls -la models/
+```
+
+**💡 Lưu ý:**
+- Script sẽ tự động list tất cả models có sẵn trong Spaces
+- Nếu không chỉ định `MODEL_PATH`, nó sẽ chọn model mới nhất
+- Model sẽ được download vào thư mục `./models/`
 
 ---
 
-## Bước 8: Transfer Model từ GPU sang CPU Droplet
+## Bước 8: Deploy Serving API trên CPU Droplet
 
-### 8.1. Sau khi training xong trên GPU - Lấy MODEL_PATH
-
-**Trên GPU Droplet:**
+### 8.1. Build Docker image
 ```bash
-# Kiểm tra model đã upload lên Spaces
-ls -la /tmp/model/
+# Đảm bảo đang ở đúng thư mục
+cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
 
-# Ghi lại model path từ training logs
-tail -n 20 /tmp/logs/training.log | grep "Model uploaded successfully"
-# Kết quả sẽ là: 🎉 Model uploaded successfully to: models/embedding_model_gpu_20241024_143022
+# Build image
+docker build -f Dockerfile.cpu-serving -t legal-embedding-serving:latest .
 
-# Hoặc check trực tiếp trên Spaces bằng AWS CLI
-aws s3 ls s3://legal-datalake/models/ --endpoint-url=https://sgp1.digitaloceanspaces.com
+# Verify image đã build
+docker images | grep legal-embedding-serving
 ```
 
-**📝 Ghi lại MODEL_PATH:** `models/embedding_model_gpu_YYYYMMDD_HHMMSS`
-
-**Ví dụ:** `models/embedding_model_gpu_20241024_143022`
-
-### 8.2. Cập nhật MODEL_PATH và deploy trên CPU Droplet
-
-**Trên CPU Droplet:**
+### 8.2. Chạy API với Docker Compose (Recommended)
 ```bash
-# Cập nhật MODEL_PATH trong .env file với path từ bước 8.1
-nano .env
+# Start service với docker-compose
+docker-compose -f docker-compose.serving.yml up -d
 
-# Thêm MODEL_PATH vào file .env:
-# MODEL_PATH=models/embedding_model_gpu_20241024_143022  # Thay bằng path thật từ bước 8.1
+# Check logs
+docker-compose -f docker-compose.serving.yml logs -f
 
-# Hoặc dùng sed để cập nhật nhanh
-sed -i 's|MODEL_PATH=.*|MODEL_PATH=models/embedding_model_gpu_20241024_143022|g' .env
-
-# Verify cấu hình
-grep MODEL_PATH .env
+# Check status
+docker-compose -f docker-compose.serving.yml ps
 ```
 
-### 8.3. Deploy serving services
+### 8.3. Hoặc chạy trực tiếp với Docker (Alternative)
 ```bash
-# Build serving image
-docker-compose build embedding-server
+# Run container
+docker run -d \
+  --name legal-embedding-api \
+  -p 5000:5000 \
+  -v $(pwd)/models:/app/models \
+  -v $(pwd)/logs:/app/logs \
+  --env-file .env.serving \
+  --restart unless-stopped \
+  legal-embedding-serving:latest
 
-# Deploy serving services  
-./deploy.sh deploy
+# Check logs
+docker logs -f legal-embedding-api
 
-# Hoặc dùng script tự động download latest model
-./deploy.sh download  # Tự động tìm model mới nhất
-./deploy.sh deploy    # Deploy với model mới
+# Check container status
+docker ps | grep legal-embedding-api
+```
+
+### 8.4. Verify API is running
+```bash
+# Test health endpoint
+curl http://localhost:5000/health
+
+# Expected output:
+# {
+#   "status": "healthy",
+#   "model_loaded": true,
+#   "device": "cpu",
+#   "embedding_dim": 1024
+# }
+```
+
+**⏰ Thời gian khởi động:**
+- **Model loading**: 30-60 giây
+- **API ready**: 1-2 phút
+
+---
+
+## Bước 9: Test và Monitor Serving API
+
+### 9.1. Chạy test suite
+```bash
+# Test từ local (trên CPU droplet)
+python3 test_api.py http://localhost:5000
+
+# Test từ máy khác (thay YOUR_CPU_DROPLET_IP)
+python3 test_api.py http://YOUR_CPU_DROPLET_IP:5000
+```
+
+### 9.2. Test thủ công với curl
+
+**Test embedding:**
+```bash
+curl -X POST http://localhost:5000/embed \
+  -H "Content-Type: application/json" \
+  -d '{
+    "texts": [
+      "Luật Dân sự năm 2015",
+      "Bộ luật Hình sự năm 2017"
+    ]
+  }'
+```
+
+**Test similarity:**
+```bash
+curl -X POST http://localhost:5000/similarity \
+  -H "Content-Type: application/json" \
+  -d '{
+    "texts1": ["Luật Dân sự về quyền sở hữu"],
+    "texts2": ["Quy định về tài sản", "Luật Hình sự"]
+  }'
+```
+
+### 9.3. Monitor API logs
+```bash
+# Với docker-compose
+docker-compose -f docker-compose.serving.yml logs -f
+
+# Với docker run
+docker logs -f legal-embedding-api
+
+# Hoặc check file logs
+tail -f logs/serve_model.log
+```
+
+### 9.4. Monitor system resources
+```bash
+# Monitor CPU, Memory
+watch -n 5 'top -n 1 | head -20'
+
+# Monitor Docker stats
+docker stats legal-embedding-api
+
+# Check disk usage
+df -h
+```
+
+### 9.5. Cấu hình Firewall (Optional nhưng recommended)
+```bash
+# Allow SSH
+ufw allow OpenSSH
+
+# Allow API port
+ufw allow 5000/tcp
+
+# Enable firewall
+ufw enable
+
+# Check status
+ufw status
 ```
 
 ---
 
-## Bước 9: Verify và Test
+## Bước 10: Cleanup và Best Practices
 
-### 9.1. Test CPU Serving Droplet
+### 10.1. Xóa GPU Droplet sau khi training xong
 ```bash
-# Trên CPU Droplet
-./deploy.sh health
-
-# Test từ local
-curl http://CPU_DROPLET_IP/health
+# Sau khi model đã upload lên Spaces và verify thành công
+# Vào Digital Ocean Dashboard:
+# 1. Chọn GPU Droplet
+# 2. Click "Destroy"
+# 3. Confirm deletion
+# 
+# Lý do: GPU Droplet rất đắt ($72-144/month)
+# Chỉ cần trong quá trình training
 ```
 
-### 9.2. Performance comparison
+### 10.2. Backup và Update Model
+
+**Khi có model mới:**
 ```bash
-# Test embedding speed
-python test_api.py http://CPU_DROPLET_IP:5000
+# SSH vào CPU droplet
+ssh root@CPU_DROPLET_IP
+cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
+
+# Backup model cũ (optional)
+mv models models_backup_$(date +%Y%m%d)
+
+# Download model mới
+mkdir -p models
+python3 download_model_from_spaces.py
+
+# Restart service
+docker-compose -f docker-compose.serving.yml restart
+
+# Verify
+curl http://localhost:5000/health
+```
+
+### 10.3. Auto-restart policy
+```bash
+# Docker Compose đã config restart: unless-stopped
+# Container sẽ tự động restart nếu:
+# - Droplet reboot
+# - Container crash
+# - Docker daemon restart
+```
+
+### 10.4. Best Practices
+
+**✅ Security:**
+- Sử dụng SSH key thay vì password
+- Enable firewall với `ufw`
+- Giới hạn access API bằng IP whitelist hoặc API key
+- Định kỳ update security patches: `apt update && apt upgrade`
+
+**✅ Performance:**
+- Monitor CPU/Memory usage định kỳ
+- Adjust `MAX_BATCH_SIZE` dựa trên RAM available
+- Consider upgrade droplet nếu performance không đủ
+
+**✅ Cost Optimization:**
+- **Xóa GPU droplet ngay** sau training
+- CPU droplet: $24-48/month (rẻ hơn nhiều)
+- Backup models lên Spaces (cheap storage)
+
+**✅ Monitoring:**
+```bash
+# Setup simple monitoring script
+cat > /root/monitor.sh << 'EOF'
+#!/bin/bash
+while true; do
+  echo "=== $(date) ==="
+  curl -s http://localhost:5000/health || echo "API DOWN!"
+  docker stats --no-stream legal-embedding-api
+  echo ""
+  sleep 300  # Check every 5 minutes
+done
+EOF
+
+chmod +x /root/monitor.sh
+
+# Run in background
+nohup /root/monitor.sh > /root/monitor.log 2>&1 &
+```
+
+### 10.5. Troubleshooting Common Issues
+
+**API không start:**
+```bash
+# Check logs
+docker logs legal-embedding-api
+
+# Common issues:
+# 1. Model không tồn tại -> Download lại
+# 2. Out of memory -> Reduce MAX_BATCH_SIZE hoặc upgrade droplet
+# 3. Port conflict -> Change API_PORT trong .env.serving
+```
+
+**Performance chậm:**
+```bash
+# Check system resources
+htop
+docker stats
+
+# Solutions:
+# 1. Upgrade to bigger droplet (4GB -> 8GB RAM)
+# 2. Reduce MAX_BATCH_SIZE
+# 3. Optimize model (quantization - advanced)
+```
+
+**Model outdated:**
+```bash
+# Download và deploy model mới
+cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
+python3 download_model_from_spaces.py
+docker-compose -f docker-compose.serving.yml restart
 ```
 
 ---
 
-## Bước 10: Cleanup GPU Droplet
+## 📊 Chi phí dự kiến
 
-### 10.1. Backup quan trọng
-**Trên GPU Droplet:**
-```bash
-# Backup logs và configs
-tar -czf training_backup.tar.gz /tmp/model /tmp/data /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup/.env
+| Service | Size | Cost/month | Usage |
+|---------|------|------------|-------|
+| **GPU Droplet** | V100, 8GB RAM | $72 | **Tạm thời** (1-2 giờ) ≈ $0.1 |
+| **CPU Droplet** | 4GB RAM, 2 vCPUs | $24 | **Lâu dài** |
+| **CPU Droplet** | 8GB RAM, 4 vCPUs | $48 | **Recommended** |
+| **Spaces Storage** | 250GB | $5 | Models + Data |
 
-# Upload backup lên Spaces (optional)
-aws s3 cp training_backup.tar.gz s3://legal-datalake/backups/ --endpoint-url=https://sgp1.digitaloceanspaces.com
-```
-
-### 10.2. Destroy GPU Droplet
-1. **Vào Digital Ocean Dashboard**
-2. **Droplets** → **legal-ai-gpu-training**
-3. **Settings** → **Destroy**
-4. **Type droplet name** → **Destroy**
-
-💰 **Tiết kiệm**: Thay vì $72/month GPU liên tục → chỉ trả $1-2 cho vài giờ training
+**💰 Total Cost: ~$29-53/month** (chỉ trả CPU serving + storage)
 
 ---
 
-## 📊 So sánh Performance & Cost
+## 🎉 Hoàn thành!
 
-### Training Performance
-| Phương án | Thời gian | Chi phí/training | GPU Memory |
-|-----------|-----------|------------------|------------|
-| CPU Droplet | 60-90 phút | ~$0.50 | 0 GB |
-| GPU Droplet | 15-30 phút | ~$1-2 | 16 GB |
+Bạn đã có:
+- ✅ GPU Droplet để training (xóa sau khi xong)
+- ✅ Model được lưu an toàn trên Spaces
+- ✅ CPU Droplet serving API 24/7
+- ✅ Chi phí tối ưu (~$29-53/month)
 
-### Serving Performance  
-| Phương án | Response time | Chi phí/tháng | Throughput |
-|-----------|---------------|---------------|------------|
-| CPU Droplet | 200-500ms | $24-48 | 5-10 req/s |
-| GPU Droplet | 50-100ms | $72+ | 20-50 req/s |
+**Next steps:**
+- Integrate API vào backend của bạn
+- Setup monitoring & alerting
+- Consider load balancer nếu traffic cao
 
-### Khuyến nghị tối ưu
-- **Training**: GPU Droplet (destroy sau khi dùng)
-- **Serving**: CPU Droplet (chạy lâu dài)
-- **Re-training**: Tạo GPU Droplet mới khi cần
-
----
-
-## 🔄 Workflow tối ưu
-
-1. **Monthly/Quarterly**: Tạo GPU Droplet → Train model mới → Destroy
-2. **Daily**: CPU Droplet serving 24/7
-3. **Update**: Download model mới từ Spaces → Restart serving
-
-**💡 Lợi ích**: 
-- Tiết kiệm 70-80% chi phí
-- Training nhanh hơn 3-4 lần
-- Serving ổn định và rẻ

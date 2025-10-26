@@ -1,0 +1,40 @@
+# Dockerfile cho CPU Serving - Đơn giản và tối ưu
+FROM python:3.10-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements_serving.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements_serving.txt
+
+# Copy application files
+COPY serve_model.py .
+COPY download_model_from_spaces.py .
+
+# Create directories
+RUN mkdir -p /app/models /app/logs
+
+# Expose port
+EXPOSE 5000
+
+# Environment variables (có thể override)
+ENV MODEL_PATH=/app/models
+ENV API_HOST=0.0.0.0
+ENV API_PORT=5000
+ENV DEBUG=false
+ENV MAX_BATCH_SIZE=32
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+# Start server
+CMD ["python", "serve_model.py"]

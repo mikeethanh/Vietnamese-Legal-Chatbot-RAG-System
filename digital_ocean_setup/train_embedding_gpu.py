@@ -186,8 +186,6 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
     """Train the embedding model with proper memory management"""
     logger.info(f"🤖 Loading model: {model_name}")
     
-    # CRITICAL: Set memory optimization BEFORE loading model
-    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:128'
     
     # Clear ALL GPU memory first
     torch.cuda.empty_cache()
@@ -358,7 +356,7 @@ def main():
     logger.info("🚀 Starting Vietnamese Legal Embedding Training")
     
     # CRITICAL: Set memory optimization GLOBALLY before anything else
-    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:128'
+    os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:128'
     
     # Configuration from environment
     model_name = os.getenv('BASE_MODEL', 'BAAI/bge-m3')
