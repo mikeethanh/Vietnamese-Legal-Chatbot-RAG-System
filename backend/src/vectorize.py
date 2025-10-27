@@ -10,7 +10,7 @@ client = QdrantClient(url="http://qdrant-db:6333")
 def create_collection(name):
     return client.create_collection(
         collection_name=name,
-        vectors_config=VectorParams(size=1536, distance=Distance.DOT),
+        vectors_config=VectorParams(size=1024, distance=Distance.DOT),
     )
 
 

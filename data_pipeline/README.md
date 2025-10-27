@@ -112,7 +112,14 @@ python utils/merge_part_files_v2.py \
 # Clean any invalid JSON lines
 python utils/clean_jsonl.py data/process_data/rag_corpus/merged_corpus.jsonl
 ```
-
+```bash
+python utils/merge_short_texts.py \
+  --input data/process_data/rag_corpus/merged_corpus.jsonl \
+  --output data/process_data/rag_corpus/merged_corpus_optimized.jsonl \
+  --min-length 100 \
+  --max-merged-length 500 \
+  --separator " "
+```
 ### Fine-tuning Data Processing
 
 #### Step 1: Process CSV Files

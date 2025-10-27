@@ -21,3 +21,4 @@ cohere>=5.9.0
 google-api-python-client==2.156.0
 sentence-transformers>=2.2.0
 tavily-python>=0.3.0
+requests>=2.31.0  # For custom embedding API calls

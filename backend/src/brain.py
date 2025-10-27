@@ -3,6 +3,7 @@ import logging
 import os
 from openai import OpenAI
 from redis import InvalidResponse
+from custom_embedding import get_custom_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +26,15 @@ def openai_chat_complete(messages=(), model="gpt-4o-mini", raw=False):
     logger.info("Chat complete output: ".format(output))
     return output.content
 
-def get_embedding(text, model="text-embedding-3-small"):
+
+def get_embedding(text, model=None):
+    """
+    Get embedding using custom Vietnamese legal model
+    Note: model parameter is kept for backward compatibility but not used
+    """
     text = text.replace("\n", " ")
-    return client.embeddings.create(input=[text], model=model).data[0].embedding
+    logger.info(f"� Using custom embedding model for text: {text[:100]}...")
+    return get_custom_embedding(text)
 
 
 def gen_doc_prompt(docs):
