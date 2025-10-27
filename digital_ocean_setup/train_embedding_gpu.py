@@ -508,13 +508,13 @@ def main():
     os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:512'
     
     # CRITICAL: Giới hạn số lượng threads để tránh memory overhead
-    os.environ['OMP_NUM_THREADS'] = '4'
-    os.environ['MKL_NUM_THREADS'] = '4'
+    #os.environ['OMP_NUM_THREADS'] = '4'
+    #os.environ['MKL_NUM_THREADS'] = '4'
     
     # Configuration from environment
     model_name = os.getenv('BASE_MODEL', 'BAAI/bge-m3')
     epochs = int(os.getenv('EPOCHS', '3'))
-    batch_size = int(os.getenv('GPU_BATCH_SIZE', '8'))  # Default 8 thay vì 16
+    batch_size = int(os.getenv('GPU_BATCH_SIZE', '64')) 
     max_samples = int(os.getenv('MAX_SAMPLES', '50000')) if os.getenv('MAX_SAMPLES') else 50000  # Default 50K
     bucket_name = os.getenv('SPACES_BUCKET', 'legal-datalake')
     

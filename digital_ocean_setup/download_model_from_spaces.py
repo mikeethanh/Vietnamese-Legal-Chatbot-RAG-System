@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 def setup_spaces_client():
     """Setup Digital Ocean Spaces client"""
-    access_key = os.getenv('SPACES_ACCESS_KEY')
-    secret_key = os.getenv('SPACES_SECRET_KEY')
-    endpoint = os.getenv('SPACES_ENDPOINT', 'https://sgp1.digitaloceanspaces.com')
+    access_key = os.getenv('SPACES_ACCESS_KEY','DO00DY94RFHXGEX7BK2B')
+    secret_key = os.getenv('SPACES_SECRET_KEY','qxssv4A4kBvDu5GHIns+CzBRVPN8CDNfH8o5AXyHf7s')
+    endpoint = os.getenv('SPACES_ENDPOINT', 'https://sfo3.digitaloceanspaces.com')
     
     if not access_key or not secret_key:
         logger.error("❌ Cần set SPACES_ACCESS_KEY và SPACES_SECRET_KEY!")

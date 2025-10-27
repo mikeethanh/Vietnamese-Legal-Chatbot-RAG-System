@@ -247,7 +247,7 @@ docker rm legal-gpu-training
 
 ---
 
-## Bước 7: Setup CPU Droplet và Download Model từ Spaces
+## Bước 7: Setup CPU Droplet
 
 ### 7.1. Kết nối CPU Droplet
 ```bash
@@ -277,10 +277,7 @@ cd Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
 
 ### 7.4. Cấu hình environment cho serving
 ```bash
-# Copy template
-cp .env.serving.template .env.serving
-
-# Edit với thông tin của bạn
+# Copy template (nếu có) hoặc tạo mới
 nano .env.serving
 ```
 
@@ -300,43 +297,74 @@ API_PORT=5000
 MAX_BATCH_SIZE=32
 ```
 
-### 7.5. Download model từ Spaces
+### 7.5. Tạo thư mục cần thiết
 ```bash
-# Load environment variables
-source .env.serving
-
-# Tạo thư mục models
+# Tạo thư mục models và logs
 mkdir -p models logs
-
-# Download model (sẽ tự động lấy model mới nhất)
-python3 download_model_from_spaces.py
-
-# Verify model đã download
-ls -la models/
 ```
-
-**💡 Lưu ý:**
-- Script sẽ tự động list tất cả models có sẵn trong Spaces
-- Nếu không chỉ định `MODEL_PATH`, nó sẽ chọn model mới nhất
-- Model sẽ được download vào thư mục `./models/`
 
 ---
 
-## Bước 8: Deploy Serving API trên CPU Droplet
+## Bước 8: Build Docker Image và Download Model
 
-### 8.1. Build Docker image
+### 8.1. Build Docker image trước
 ```bash
 # Đảm bảo đang ở đúng thư mục
 cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
 
-# Build image
+# Build image (image này đã có Python và tất cả dependencies cần thiết)
 docker build -f Dockerfile.cpu-serving -t legal-embedding-serving:latest .
 
 # Verify image đã build
 docker images | grep legal-embedding-serving
 ```
 
-### 8.2. Chạy API với Docker Compose (Recommended)
+**💡 Lưu ý:** Image này đã bao gồm:
+- Python 3.10
+- Tất cả dependencies trong `requirements_serving.txt`
+- Script `download_model_from_spaces.py`
+- Script `serve_model.py`
+
+### 8.2. Download model từ Spaces bằng Docker container
+```bash
+# Load environment variables
+source .env.serving
+
+# Chạy container để download model (dùng image vừa build)
+docker run --rm \
+  -v $(pwd)/models:/app/models \
+  -v $(pwd)/logs:/app/logs \
+  -e SPACES_ACCESS_KEY="$SPACES_ACCESS_KEY" \
+  -e SPACES_SECRET_KEY="$SPACES_SECRET_KEY" \
+  -e SPACES_ENDPOINT="$SPACES_ENDPOINT" \
+  -e SPACES_BUCKET="$SPACES_BUCKET" \
+  -e MODEL_PATH="$MODEL_PATH" \
+  legal-embedding-serving:latest \
+  python download_model_from_spaces.py
+
+# Verify model đã download
+ls -la models/
+```
+
+**💡 Giải thích:**
+- `--rm`: Tự động xóa container sau khi chạy xong
+- `-v $(pwd)/models:/app/models`: Mount thư mục models để lưu file download
+- Các `-e`: Pass environment variables vào container
+- `python download_model_from_spaces.py`: Override CMD để chạy script download thay vì serve
+
+**📋 Output mong đợi:**
+```
+✅ Đã kết nối với Spaces: https://sgp1.digitaloceanspaces.com
+📋 Liệt kê models có sẵn trong bucket 'legal-datalake'...
+✅ Tìm thấy X model(s):
+   1. models/legal-embedding-v1
+   2. models/legal-embedding-v2
+📥 Đang download model từ 'models/legal-embedding-v2'...
+...
+✅ Download hoàn tất!
+```
+
+### 8.3. Deploy Serving API với Docker Compose (Recommended)
 ```bash
 # Start service với docker-compose
 docker-compose -f docker-compose.serving.yml up -d
@@ -348,15 +376,18 @@ docker-compose -f docker-compose.serving.yml logs -f
 docker-compose -f docker-compose.serving.yml ps
 ```
 
-### 8.3. Hoặc chạy trực tiếp với Docker (Alternative)
+### 8.4. Hoặc chạy trực tiếp với Docker (Alternative)
 ```bash
-# Run container
+# Run container để serving API
 docker run -d \
   --name legal-embedding-api \
   -p 5000:5000 \
   -v $(pwd)/models:/app/models \
   -v $(pwd)/logs:/app/logs \
-  --env-file .env.serving \
+  -e MODEL_PATH=/app/models \
+  -e API_HOST=0.0.0.0 \
+  -e API_PORT=5000 \
+  -e MAX_BATCH_SIZE=32 \
   --restart unless-stopped \
   legal-embedding-serving:latest
 
@@ -367,9 +398,9 @@ docker logs -f legal-embedding-api
 docker ps | grep legal-embedding-api
 ```
 
-### 8.4. Verify API is running
+### 8.5. Verify API is running
 ```bash
-# Test health endpoint
+# Test health endpoint từ trong droplet
 curl http://localhost:5000/health
 
 # Expected output:
@@ -385,24 +416,139 @@ curl http://localhost:5000/health
 - **Model loading**: 30-60 giây
 - **API ready**: 1-2 phút
 
+### 8.6. 🔥 MỞ FIREWALL để Serving ra bên ngoài
+
+**Bước này RẤT QUAN TRỌNG** - Nếu không làm thì API chỉ chạy local!
+
+```bash
+# Kiểm tra firewall status
+ufw status
+
+# Nếu firewall chưa active hoặc chưa config:
+# Allow SSH (QUAN TRỌNG - làm trước khi enable ufw!)
+ufw allow OpenSSH
+ufw allow 22/tcp
+
+# Allow API port
+ufw allow 5000/tcp
+
+# Enable firewall
+ufw --force enable
+
+# Verify firewall rules
+ufw status verbose
+```
+
+**📋 Expected output:**
+```
+Status: active
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere
+5000/tcp                   ALLOW       Anywhere
+OpenSSH                    ALLOW       Anywhere
+```
+
+### 8.7. 🌐 Test API từ bên ngoài
+
+```bash
+# Test từ máy local của bạn (thay YOUR_DROPLET_IP)
+curl http://YOUR_DROPLET_IP:5000/health
+
+# Test embedding endpoint
+curl -X POST http://YOUR_DROPLET_IP:5000/embed \
+  -H "Content-Type: application/json" \
+  -d '{
+    "texts": ["Luật Dân sự năm 2015"]
+  }'
+```
+
+**✅ Nếu thành công, bạn sẽ thấy:**
+- `/health` trả về status healthy
+- `/embed` trả về array of embeddings
+
+**🔧 Troubleshooting:**
+```bash
+# Nếu không kết nối được từ bên ngoài:
+
+# 1. Check container có đang chạy không
+docker ps | grep legal-embedding-api
+
+# 2. Check port mapping
+docker port legal-embedding-api
+
+# 3. Check firewall
+ufw status verbose
+
+# 4. Check logs
+docker logs legal-embedding-api
+
+# 5. Test từ trong droplet trước
+curl http://localhost:5000/health
+
+# 6. Nếu model không tồn tại, download lại
+docker run --rm \
+  -v $(pwd)/models:/app/models \
+  --env-file .env.serving \
+  legal-embedding-serving:latest \
+  python download_model_from_spaces.py
+
+# 7. Restart API container
+docker restart legal-embedding-api
+```
+
+**💡 Lưu ý bảo mật:**
+- Port 5000 đang mở công khai ra internet
+- Consider thêm authentication/API key nếu cần
+- Hoặc chỉ allow IP cụ thể:
+```bash
+# Chỉ allow từ IP cụ thể
+ufw delete allow 5000/tcp
+ufw allow from YOUR_BACKEND_IP to any port 5000
+```
+
 ---
 
 ## Bước 9: Test và Monitor Serving API
 
-### 9.1. Chạy test suite
+### 9.1. Test nhanh với script
 ```bash
-# Test từ local (trên CPU droplet)
-python3 test_api.py http://localhost:5000
-
-# Test từ máy khác (thay YOUR_CPU_DROPLET_IP)
-python3 test_api.py http://YOUR_CPU_DROPLET_IP:5000
+# Trên máy local, clone repo nếu chưa có
+git clone https://github.com/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System.git
+cd Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
 ```
 
-### 9.2. Test thủ công với curl
-
-**Test embedding:**
+### 9.2. Chạy test suite đầy đủ (Python)
 ```bash
-curl -X POST http://localhost:5000/embed \
+# Test từ local (trên máy local của bạn, không phải droplet)
+cd Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
+python3 test_api.py http://YOUR_DROPLET_IP:5000
+```
+
+### 9.3. Test thủ công với curl
+
+**🔍 Endpoint 1: Health Check**
+```bash
+# Check xem API có sống không
+curl http://YOUR_DROPLET_IP:5000/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "model_loaded": true,
+  "device": "cpu",
+  "embedding_dim": 1024,
+  "timestamp": 1234567890.123
+}
+```
+
+**📝 Endpoint 2: Generate Embeddings**
+```bash
+# Tạo embedding vectors cho text
+curl -X POST http://YOUR_DROPLET_IP:5000/embed \
   -H "Content-Type: application/json" \
   -d '{
     "texts": [
@@ -412,14 +558,76 @@ curl -X POST http://localhost:5000/embed \
   }'
 ```
 
-**Test similarity:**
+**Response:**
+```json
+{
+  "embeddings": [
+    [0.123, -0.456, 0.789, ...],  // 1024 dimensions
+    [0.234, -0.567, 0.890, ...]   // 1024 dimensions
+  ],
+  "processing_time": 0.123,
+  "count": 2
+}
+```
+
+**🔢 Endpoint 3: Calculate Similarity**
 ```bash
-curl -X POST http://localhost:5000/similarity \
+# Tính độ tương đồng giữa các câu
+curl -X POST http://YOUR_DROPLET_IP:5000/similarity \
   -H "Content-Type: application/json" \
   -d '{
     "texts1": ["Luật Dân sự về quyền sở hữu"],
-    "texts2": ["Quy định về tài sản", "Luật Hình sự"]
+    "texts2": ["Luật Dân  sự"]
   }'
+```
+
+**Response:**
+```json
+{
+  "similarities": [
+    [0.85, 0.23]  // similarities[i][j] = similarity(texts1[i], texts2[j])
+  ],
+  "processing_time": 0.089,
+  "shape": [1, 2]
+}
+```
+
+**💡 Cách sử dụng trong code Python:**
+```python
+import requests
+
+API_URL = "http://YOUR_DROPLET_IP:5000"
+
+# 1. Generate embeddings
+response = requests.post(
+    f"{API_URL}/embed",
+    json={"texts": ["Luật Dân sự", "Bộ luật Hình sự"]}
+)
+embeddings = response.json()["embeddings"]
+print(f"Got {len(embeddings)} embeddings")
+
+# 2. Calculate similarity
+response = requests.post(
+    f"{API_URL}/similarity",
+    json={
+        "texts1": ["Quyền sở hữu tài sản"],
+        "texts2": ["Tài sản riêng", "Tài sản chung", "Quyền kế thừa"]
+    }
+)
+similarities = response.json()["similarities"]
+print(f"Similarities: {similarities}")
+
+# 3. Find most similar
+query = "Luật về đất đai"
+candidates = ["Quy định về nhà đất", "Bộ luật Hình sự", "Luật Đất đai 2013"]
+
+response = requests.post(
+    f"{API_URL}/similarity",
+    json={"texts1": [query], "texts2": candidates}
+)
+scores = response.json()["similarities"][0]
+best_idx = scores.index(max(scores))
+print(f"Most similar: {candidates[best_idx]} (score: {scores[best_idx]:.3f})")
 ```
 
 ### 9.3. Monitor API logs
@@ -446,19 +654,36 @@ docker stats legal-embedding-api
 df -h
 ```
 
-### 9.5. Cấu hình Firewall (Optional nhưng recommended)
+### 9.5. Cấu hình Firewall (BẮT BUỘC cho production)
 ```bash
-# Allow SSH
+# Kiểm tra firewall hiện tại
+ufw status
+
+# Allow SSH (QUAN TRỌNG - phải làm trước!)
 ufw allow OpenSSH
+ufw allow 22/tcp
 
 # Allow API port
 ufw allow 5000/tcp
 
 # Enable firewall
-ufw enable
+ufw --force enable
 
-# Check status
-ufw status
+# Verify
+ufw status verbose
+```
+
+**🔒 Tùy chọn bảo mật cao hơn:**
+```bash
+# Chỉ allow API từ IP backend của bạn
+ufw delete allow 5000/tcp
+ufw allow from YOUR_BACKEND_SERVER_IP to any port 5000
+
+# Hoặc allow từ một subnet
+ufw allow from 10.0.0.0/8 to any port 5000
+
+# Rate limiting để chống DDoS
+ufw limit 5000/tcp
 ```
 
 ---
@@ -487,13 +712,24 @@ cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
 
 # Backup model cũ (optional)
 mv models models_backup_$(date +%Y%m%d)
-
-# Download model mới
 mkdir -p models
-python3 download_model_from_spaces.py
+
+# Download model mới bằng Docker container
+source .env.serving
+docker run --rm \
+  -v $(pwd)/models:/app/models \
+  -e SPACES_ACCESS_KEY="$SPACES_ACCESS_KEY" \
+  -e SPACES_SECRET_KEY="$SPACES_SECRET_KEY" \
+  -e SPACES_ENDPOINT="$SPACES_ENDPOINT" \
+  -e SPACES_BUCKET="$SPACES_BUCKET" \
+  -e MODEL_PATH="$MODEL_PATH" \
+  legal-embedding-serving:latest \
+  python download_model_from_spaces.py
 
 # Restart service
 docker-compose -f docker-compose.serving.yml restart
+# Hoặc nếu dùng docker run:
+# docker restart legal-embedding-api
 
 # Verify
 curl http://localhost:5000/health
@@ -573,10 +809,18 @@ docker stats
 
 **Model outdated:**
 ```bash
-# Download và deploy model mới
+# Download và deploy model mới bằng Docker container
 cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
-python3 download_model_from_spaces.py
+source .env.serving
+
+docker run --rm \
+  -v $(pwd)/models:/app/models \
+  --env-file .env.serving \
+  legal-embedding-serving:latest \
+  python download_model_from_spaces.py
+
 docker-compose -f docker-compose.serving.yml restart
+# Hoặc: docker restart legal-embedding-api
 ```
 
 ---

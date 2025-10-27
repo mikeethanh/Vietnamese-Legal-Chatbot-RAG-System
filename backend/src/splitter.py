@@ -3,27 +3,26 @@ from llama_index.core.node_parser import SemanticSplitterNodeParser, TokenTextSp
 from llama_index.core.embeddings import BaseEmbedding
 import logging
 import os
+from custom_embedding import get_custom_embedding
 
 logger = logging.getLogger(__name__)
 
-# Custom embedding wrapper for OpenAI
-class OpenAIEmbeddingWrapper(BaseEmbedding):
-    """Wrapper for OpenAI embeddings to use with SemanticSplitter"""
+# Custom embedding wrapper for Vietnamese legal model
+class CustomEmbeddingWrapper(BaseEmbedding):
+    """Wrapper for custom embeddings to use with SemanticSplitter"""
     
     def __init__(self):
-        from openai import OpenAI
-        self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         super().__init__()
     
     def _get_query_embedding(self, query: str):
         """Get embedding for query"""
         text = query.replace("\n", " ")
-        return self.client.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
+        return get_custom_embedding(text)
     
     def _get_text_embedding(self, text: str):
         """Get embedding for text"""
         text = text.replace("\n", " ")
-        return self.client.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
+        return get_custom_embedding(text)
     
     async def _aget_query_embedding(self, query: str):
         """Async get embedding for query"""
@@ -47,15 +46,15 @@ def split_document(text, metadata={"course": "LLM"}, use_semantic=True):
     )
     
     if use_semantic:
-        # Use semantic splitter with OpenAI embeddings for Vietnamese legal text
+        # Use semantic splitter with custom Vietnamese legal embeddings
         # This ensures chunks break at semantic boundaries rather than arbitrary tokens
-        embed_model = OpenAIEmbeddingWrapper()
+        embed_model = CustomEmbeddingWrapper()
         splitter = SemanticSplitterNodeParser(
             buffer_size=1,  # Number of sentences to group together when evaluating semantic similarity
             breakpoint_percentile_threshold=95,  # Threshold for semantic similarity to create a split
             embed_model=embed_model,
         )
-        logger.info("Using semantic splitter for document chunking")
+        logger.info("Using semantic splitter with custom embedding model for document chunking")
     else:
         # Fallback to token-based splitting
         splitter = TokenTextSplitter(
