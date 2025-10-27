@@ -12,9 +12,10 @@ import torch
 import boto3
 from datetime import datetime
 from sentence_transformers import SentenceTransformer, InputExample, losses
-from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.evaluation import InformationRetrievalEvaluator
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
+import hashlib
 import random
 
 # Setup logging
@@ -155,37 +156,31 @@ def load_texts(data_path, max_samples=None):
     return texts
 
 def create_training_examples(texts):
-    logger.info("🔧 Creating training examples...")
-    
-    examples = []
+    """
+    Create training examples using SimCSE approach
+    SimCSE: Same text với 2 lần forward pass (dropout tạo augmentation)
+    """
+    logger.info("🔧 Creating SimCSE training examples...")
     
     # CRITICAL: Giới hạn số examples để tránh OOM với large datasets
-    max_examples = int(os.getenv('MAX_TRAINING_EXAMPLES', '100000'))
+    max_examples = int(os.getenv('MAX_TRAINING_EXAMPLES', '50000'))
     
-    # Positive pairs (sequential texts - similar)
-    positive_count = 0
-    for i in range(0, min(len(texts) - 1, max_examples), 2):
-        if i + 1 < len(texts):
-            examples.append(InputExample(
-                texts=[texts[i], texts[i + 1]], 
-                label=0.8
-            ))
-            positive_count += 1
+    # SimCSE: Mỗi text là 1 example, model sẽ tự tạo positive pair qua dropout
+    # Format: InputExample(texts=[anchor, positive])
+    # Với SimCSE, anchor và positive là cùng 1 text (dropout tạo khác biệt)
+    examples = []
     
-    # Negative pairs (random texts - dissimilar) - balance với positive
-    negative_count = min(positive_count // 2, 5000)  # Giảm tỉ lệ negative để tiết kiệm memory
-    for _ in range(negative_count):
-        idx1, idx2 = random.sample(range(len(texts)), 2)
+    limited_texts = texts[:max_examples]
+    
+    for text in limited_texts:
+        # SimCSE: Positive pair = same text (dropout makes them different)
         examples.append(InputExample(
-            texts=[texts[idx1], texts[idx2]], 
-            label=0.2
+            texts=[text, text]  # Anchor và positive giống nhau
         ))
     
-    random.shuffle(examples)
-    
-    logger.info(f"✅ Created {len(examples)} training examples (max_allowed: {max_examples})")
-    logger.info(f"   📊 Positive pairs: {positive_count} (label=0.8)")
-    logger.info(f"   📊 Negative pairs: {negative_count} (label=0.2)")
+    logger.info(f"✅ Created {len(examples)} SimCSE training examples (max_allowed: {max_examples})")
+    logger.info(f"   📊 Method: SimCSE (dropout-based augmentation)")
+    logger.info(f"   📊 Each example uses same text twice for positive pair")
     
     # Memory warning
     if len(examples) > 50000:
@@ -194,7 +189,87 @@ def create_training_examples(texts):
     
     return examples
 
-def train_model(model_name, examples, device, epochs=3, batch_size=16):
+def build_synthetic_evaluation(texts, num_queries=500, num_corpus=5000):
+    """
+    Build synthetic evaluation set for Information Retrieval
+    Tạo queries và corpus từ texts để evaluate khả năng retrieval
+    
+    Returns:
+        queries: Dict[query_id, query_text]
+        corpus: Dict[doc_id, doc_text]
+        relevant_docs: Dict[query_id, Set[doc_id]] - ground truth
+    """
+    logger.info("🔧 Building synthetic evaluation set...")
+    
+    # Đảm bảo không vượt quá số texts có sẵn
+    num_queries = min(num_queries, len(texts) // 10)
+    num_corpus = min(num_corpus, len(texts))
+    
+    # Shuffle texts để random selection
+    eval_texts = texts.copy()
+    random.shuffle(eval_texts)
+    
+    # Split: 10% cho queries, 90% cho corpus
+    query_texts = eval_texts[:num_queries]
+    corpus_texts = eval_texts[num_queries:num_queries + num_corpus]
+    
+    # Build queries dict
+    queries = {}
+    for i, text in enumerate(query_texts):
+        query_id = f"q{i}"
+        # Lấy 1 phần của text làm query (simulate real query)
+        words = text.split()
+        if len(words) > 10:
+            query = ' '.join(words[:len(words)//2])  # Lấy nửa đầu làm query
+        else:
+            query = text
+        queries[query_id] = query
+    
+    # Build corpus dict
+    corpus = {}
+    for i, text in enumerate(corpus_texts):
+        doc_id = f"doc{i}"
+        corpus[doc_id] = text
+    
+    # Build relevant_docs (ground truth)
+    # Strategy: Tìm docs có overlap từ với query
+    relevant_docs = {}
+    
+    for query_id, query_text in queries.items():
+        query_words = set(query_text.lower().split())
+        relevant_set = set()
+        
+        # Tìm top-K docs có nhiều overlap words nhất
+        doc_scores = []
+        for doc_id, doc_text in corpus.items():
+            doc_words = set(doc_text.lower().split())
+            overlap = len(query_words & doc_words)
+            if overlap > 0:
+                doc_scores.append((doc_id, overlap))
+        
+        # Lấy top-3 làm relevant docs
+        doc_scores.sort(key=lambda x: x[1], reverse=True)
+        for doc_id, score in doc_scores[:3]:
+            relevant_set.add(doc_id)
+        
+        if relevant_set:  # Chỉ add nếu có relevant docs
+            relevant_docs[query_id] = relevant_set
+    
+    logger.info(f"✅ Synthetic evaluation set created:")
+    logger.info(f"   📊 Queries: {len(queries)}")
+    logger.info(f"   📊 Corpus: {len(corpus)}")
+    logger.info(f"   📊 Queries with relevant docs: {len(relevant_docs)}")
+    
+    # Log sample
+    if queries and corpus:
+        sample_qid = list(queries.keys())[0]
+        logger.info(f"   📝 Sample query: {queries[sample_qid][:100]}...")
+        if sample_qid in relevant_docs:
+            logger.info(f"   � Relevant docs: {len(relevant_docs[sample_qid])} docs")
+    
+    return queries, corpus, relevant_docs
+
+def train_model(model_name, examples, device, epochs=3, batch_size=64):
     """Train the embedding model with proper memory management"""
     logger.info(f"🤖 Loading model: {model_name}")
     
@@ -228,43 +303,14 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
     
     # Split data with memory consideration
     train_examples, val_examples = train_test_split(
-        examples, test_size=0.1, random_state=42, stratify=None  # ✅ Không stratify vì chỉ có 2 labels
+        examples, test_size=0.1, random_state=42
     )
     
     logger.info(f"📊 Training examples: {len(train_examples)}")
     logger.info(f"📊 Validation examples: {len(val_examples)}")
     
-    # ✅ ĐẢM BẢO validation set có CẢ positive VÀ negative examples
-    val_labels = [ex.label for ex in val_examples]
-    unique_labels = set(val_labels)
-    
-    logger.info(f"🔍 Validation set labels: {unique_labels}")
-    
-    if len(unique_labels) < 2:
-        logger.warning("⚠️ Validation set chỉ có 1 loại label! Tạo lại balanced validation set...")
-        
-        # Tách positive và negative từ toàn bộ examples
-        positive_examples = [ex for ex in examples if ex.label > 0.5]
-        negative_examples = [ex for ex in examples if ex.label <= 0.5]
-        
-        # Lấy 50% positive, 50% negative cho validation
-        val_size = max(20, int(len(examples) * 0.1))
-        val_positive = random.sample(positive_examples, val_size // 2)
-        val_negative = random.sample(negative_examples, val_size // 2)
-        
-        val_examples = val_positive + val_negative
-        random.shuffle(val_examples)
-        
-        # Train set là phần còn lại
-        val_ids = {id(ex) for ex in val_examples}
-        train_examples = [ex for ex in examples if id(ex) not in val_ids]
-        
-        logger.info(f"✅ Recreated balanced validation set:")
-        logger.info(f"   📊 Positive: {len(val_positive)}")
-        logger.info(f"   📊 Negative: {len(val_negative)}")
-    
     # Get num_workers from environment variable or use default
-    num_workers = int(os.getenv('DATALOADER_NUM_WORKERS', '4'))  # Giảm từ 8 → 4 để tiết kiệm RAM
+    num_workers = int(os.getenv('DATALOADER_NUM_WORKERS', '4'))  
     
     # CRITICAL: Memory-optimized DataLoader - tắt pin_memory với large datasets
     train_dataloader = DataLoader(
@@ -272,19 +318,41 @@ def train_model(model_name, examples, device, epochs=3, batch_size=16):
         shuffle=True, 
         batch_size=batch_size,
         num_workers=num_workers,
-        pin_memory=False,  # ❌ TẮT pin_memory để tránh memory leak với large datasets
-        persistent_workers=False,  # ❌ TẮT persistent workers để giải phóng memory
-        prefetch_factor=2  # Giảm prefetch để tiết kiệm memory
+        pin_memory=False,  
+        persistent_workers=False,  
+        prefetch_factor=2  
     )
     
-    # Loss function
-    train_loss = losses.CosineSimilarityLoss(model)
+    # Loss function: MultipleNegativesRankingLoss cho SimCSE
+    # Loss này tự động tạo in-batch negatives từ các examples khác trong batch
+    train_loss = losses.MultipleNegativesRankingLoss(model)
+    logger.info("✅ Using MultipleNegativesRankingLoss (SimCSE compatible)")
     
-    # Smaller evaluator to save memory
-    evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
-        val_examples[:20],  # Reduced from 50 to 20
-        name='legal-eval'
+    # Build synthetic evaluation set
+    logger.info("🔧 Building evaluation set from validation texts...")
+    # Extract texts from validation examples
+    val_texts = []
+    for ex in val_examples[:5000]:  # Giới hạn để tiết kiệm memory
+        val_texts.extend(ex.texts)
+    val_texts = list(set(val_texts))  # Remove duplicates
+    
+    # Build IR evaluation
+    queries, corpus, relevant_docs = build_synthetic_evaluation(
+        val_texts, 
+        num_queries=min(100, len(val_texts) // 50),  # Giảm xuống để tránh OOM
+        num_corpus=min(1000, len(val_texts))
     )
+    
+    # Create InformationRetrievalEvaluator
+    evaluator = InformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=relevant_docs,
+        name='legal-ir-eval',
+        show_progress_bar=False,  # Tắt progress bar để giảm overhead
+        batch_size=32  # Batch size cho evaluation
+    )
+    logger.info("✅ InformationRetrievalEvaluator created")
     
     # Training with memory optimization
     logger.info(f"🔥 Starting training...")

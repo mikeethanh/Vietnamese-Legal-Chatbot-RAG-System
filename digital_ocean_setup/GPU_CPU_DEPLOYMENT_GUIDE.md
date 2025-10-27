@@ -231,11 +231,6 @@ tail -f logs/training.log
 # (Nếu training script có auto-upload)
 ```
 
-**⏰ Thời gian training:**
-- **GPU V100**: 15-30 phút
-- **GPU H100**: 8-15 phút  
-- **Batch size**: Có thể tăng lên 128+ với GPU H100
-
 **🚨 Troubleshooting:**
 ```bash
 # Nếu training fail, check logs
