@@ -206,7 +206,7 @@ def train_model(model_name, examples, device, epochs=5, batch_size=64):
     )
     
     # Define TripletLoss
-    train_loss = losses.TripletLoss(model=model, margin=0.2)
+    train_loss = losses.TripletLoss(model=model)
     
     # Prepare evaluation data for TripletEvaluator
     anchors = []
@@ -371,7 +371,7 @@ def main():
     logger.info("🚀 Starting Vietnamese Legal Embedding Training with Triplet Data")
     
     # Set memory optimization GLOBALLY before anything else
-    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:512'
+    os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:512'
     
     # Configuration from environment
     model_name = os.getenv('BASE_MODEL', 'BAAI/bge-m3')
