@@ -206,7 +206,7 @@ def train_model(model_name, examples, device, epochs=5, batch_size=64):
     )
     
     # Define TripletLoss
-    train_loss = losses.TripletLoss(model=model)
+    train_loss = losses.TripletLoss(model=model,triplet_margin=1.0)
     
     # Prepare evaluation data for TripletEvaluator
     anchors = []

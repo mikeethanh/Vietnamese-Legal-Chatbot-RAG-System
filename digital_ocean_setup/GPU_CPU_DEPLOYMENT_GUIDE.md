@@ -175,12 +175,6 @@ if torch.cuda.is_available():
 
 ### 6.4. Run training với GPU (method 1: Direct run)
 ```bash
-# Đảm bảo đang ở đúng thư mục
-cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
-
-# Load environment variables
-source .env
-
 # Run training với full config từ .env
 docker run --gpus all \
   --name legal-gpu-training \
