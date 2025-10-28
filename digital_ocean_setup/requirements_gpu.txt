@@ -1,5 +1,5 @@
 # GPU Training Requirements - Fixed dependencies
-torch>=2.0.0
+torch>=2.6.0
 sentence-transformers>=2.3.0
 transformers>=4.30.0
 datasets>=2.10.0
