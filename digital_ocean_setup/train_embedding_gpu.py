@@ -183,9 +183,9 @@ def train_model(model_name, examples, device, epochs=5, batch_size=64):
         torch.cuda.empty_cache()
         sys.exit(1)
     
-    # Split data for training and evaluation (9:1 ratio as requested)
+    # Split data for training and evaluation (8:2 ratio as requested)
     train_examples, val_examples = train_test_split(
-        examples, test_size=0.1, random_state=42
+        examples, test_size=0.2, random_state=42
     )
     
     logger.info(f"📊 Training examples: {len(train_examples)}")
