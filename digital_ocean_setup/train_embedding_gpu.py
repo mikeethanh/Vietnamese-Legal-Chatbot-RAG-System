@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Improved GPU training script for Vietnamese Legal documents
-Using triplet data (query, positive, hard_neg) from law_vi.jsonl
-"""
 
 import os
 import json
@@ -31,7 +27,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def check_gpu():
-    """Check GPU availability and memory"""
     if not torch.cuda.is_available():
         logger.error("❌ CUDA not available")
         sys.exit(1)
@@ -141,8 +136,7 @@ def load_triplet_data(data_path, max_samples=None):
                     
                 # Log progress every 10000 lines
                 if line_num % 10000 == 0:
-                    logger.info(f"Processed {line_num} lines, created {len(examples)} examples")
-        
+                    logger.info(f"Processed {line_num} lines, created {len(examples)} examples")        
         logger.info(f"✅ Loaded {len(examples)} triplet examples")
         return examples
         
@@ -152,6 +146,39 @@ def load_triplet_data(data_path, max_samples=None):
     except Exception as e:
         logger.error(f"❌ Error loading data: {e}")
         sys.exit(1)
+
+def evaluate_baseline(model, val_examples, device):
+    """Evaluate baseline model performance before training"""
+    logger.info("📊 Evaluating baseline model...")
+    
+    # Sample evaluation set (use smaller sample to save time)
+    eval_examples = random.sample(val_examples, min(5000, len(val_examples)))
+    
+    # Prepare data for TripletEvaluator
+    anchors = []
+    positives = []
+    negatives = []
+    
+    for example in eval_examples:
+        anchors.append(example.texts[0])  # query
+        positives.append(example.texts[1])  # positive
+        negatives.append(example.texts[2])  # hard_neg
+    
+    # Create evaluator
+    evaluator = TripletEvaluator(
+        anchors=anchors,
+        positives=positives,
+        negatives=negatives,
+        name="baseline_evaluation"
+    )
+    
+    # Evaluate
+    baseline_score = evaluator(model, output_path='/tmp/baseline_eval')
+    
+    logger.info(f"✅ Baseline Accuracy: {baseline_score:.4f}")
+    logger.info(f"   (Percentage of cases where anchor is closer to positive than negative)")
+    
+    return baseline_score
                     
 def train_model(model_name, examples, device, epochs=5, batch_size=64):
     """Train the embedding model with triplet loss and evaluation"""
@@ -191,6 +218,13 @@ def train_model(model_name, examples, device, epochs=5, batch_size=64):
     logger.info(f"📊 Training examples: {len(train_examples)}")
     logger.info(f"📊 Validation examples: {len(val_examples)}")
     
+    # Evaluate baseline model before training
+    logger.info("="*80)
+    logger.info("🔍 BASELINE EVALUATION (Before Training)")
+    logger.info("="*80)
+    baseline_score = evaluate_baseline(model, val_examples, device)
+    logger.info("="*80)
+    
     # Get num_workers from environment variable or use default
     num_workers = int(os.getenv('DATALOADER_NUM_WORKERS', '4'))  
     
@@ -206,7 +240,7 @@ def train_model(model_name, examples, device, epochs=5, batch_size=64):
     )
     
     # Define TripletLoss
-    train_loss = losses.TripletLoss(model=model,triplet_margin=1.0)
+    train_loss = losses.TripletLoss(model=model)
     
     # Prepare evaluation data for TripletEvaluator
     anchors = []
@@ -255,7 +289,7 @@ def train_model(model_name, examples, device, epochs=5, batch_size=64):
             logger.info(f"✅ Set max_seq_length = {max_seq_length}")
         
         # Improved learning rate
-        learning_rate = float(os.getenv('LEARNING_RATE', '2e-5'))
+        learning_rate = float(os.getenv('LEARNING_RATE', '1e-5'))
         
         logger.info(f"📊 Training settings:")
         logger.info(f"   Learning rate: {learning_rate}")
@@ -278,6 +312,38 @@ def train_model(model_name, examples, device, epochs=5, batch_size=64):
         # Clear cache after training
         torch.cuda.empty_cache()
         logger.info("✅ Training completed, memory cleared")
+        
+        # Evaluate final model performance
+        logger.info("="*80)
+        logger.info("🔍 FINAL EVALUATION (After Training)")
+        logger.info("="*80)
+        final_score = evaluate_baseline(model, val_examples, device)
+        logger.info("="*80)
+        
+        # Compare baseline vs final
+        improvement = final_score - baseline_score
+        improvement_pct = (improvement / baseline_score) * 100 if baseline_score > 0 else 0
+        
+        logger.info("="*80)
+        logger.info("📈 PERFORMANCE COMPARISON")
+        logger.info("="*80)
+        logger.info(f"   Baseline Score: {baseline_score:.4f}")
+        logger.info(f"   Final Score:    {final_score:.4f}")
+        logger.info(f"   Improvement:    {improvement:+.4f} ({improvement_pct:+.2f}%)")
+        logger.info("="*80)
+        
+        # Save comparison to file
+        comparison_path = '/tmp/model/performance_comparison.txt'
+        with open(comparison_path, 'w', encoding='utf-8') as f:
+            f.write("PERFORMANCE COMPARISON\n")
+            f.write("="*80 + "\n")
+            f.write(f"Baseline Score: {baseline_score:.4f}\n")
+            f.write(f"Final Score:    {final_score:.4f}\n")
+            f.write(f"Improvement:    {improvement:+.4f} ({improvement_pct:+.2f}%)\n")
+            f.write("="*80 + "\n")
+            f.write(f"\nTraining completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        
+        logger.info(f"💾 Performance comparison saved to {comparison_path}")
         
     except torch.cuda.OutOfMemoryError as e:
         logger.error(f"💥 CUDA OOM Error: {e}")
@@ -305,7 +371,7 @@ def train_model(model_name, examples, device, epochs=5, batch_size=64):
     # Final memory cleanup
     torch.cuda.empty_cache()
     
-    return model
+    return model, baseline_score, final_score
 
 def upload_model(spaces_client, bucket_name, model_name):
     """Upload trained model to Spaces"""
@@ -413,7 +479,7 @@ def main():
         examples = load_triplet_data(data_path, max_samples)
         
         # Train model
-        model = train_model(model_name, examples, device, epochs, batch_size)
+        model, baseline_score, final_score = train_model(model_name, examples, device, epochs, batch_size)
         
         # Upload model
         model_path = upload_model(spaces_client, bucket_name, model_name)
@@ -427,8 +493,17 @@ def main():
         torch.cuda.empty_cache()
         log_memory_usage("Final cleanup")
         
-        logger.info("🎉 Training completed successfully!")
-        logger.info(f"📍 Model available at: {model_path}")
+        # Print final summary
+        logger.info("="*80)
+        logger.info("🎉 TRAINING COMPLETED SUCCESSFULLY!")
+        logger.info("="*80)
+        logger.info(f"📍 Model location: {model_path}")
+        logger.info(f"📊 Baseline Score: {baseline_score:.4f}")
+        logger.info(f"� Final Score:    {final_score:.4f}")
+        improvement = final_score - baseline_score
+        improvement_pct = (improvement / baseline_score) * 100 if baseline_score > 0 else 0
+        logger.info(f"📈 Improvement:    {improvement:+.4f} ({improvement_pct:+.2f}%)")
+        logger.info("="*80)
         
     except KeyboardInterrupt:
         logger.info("⚠️ Training interrupted by user")
