@@ -226,8 +226,7 @@ def train_model(model_name, examples, device, epochs=5, batch_size=64):
     anchors=anchors,
     positives=positives,
     negatives=negatives,
-    name="triplet_evaluation",
-    normalize_embeddings=True
+    name="triplet_evaluation"
     )
 
     
