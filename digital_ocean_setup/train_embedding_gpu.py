@@ -15,8 +15,6 @@ from sentence_transformers import SentenceTransformer, InputExample, losses
 from sentence_transformers.evaluation import InformationRetrievalEvaluator
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
-import hashlib
-import random
 
 # Setup logging
 logging.basicConfig(
@@ -86,14 +84,14 @@ def setup_spaces_client():
 
 def download_data(spaces_client, bucket_name):
     """Download training data from Spaces"""
-    data_path = '/tmp/data/merged_corpus.jsonl'
+    data_path = '/tmp/data/law_vi.jsonl'
     os.makedirs('/tmp/data', exist_ok=True)
     
     try:
-        logger.info("📥 Downloading training data...")
+        logger.info("📥 Downloading triplet training data...")
         spaces_client.download_file(
             bucket_name,
-            'process_data/rag_corpus/merged_corpus.jsonl',
+            'process_data/embed/law_vi.jsonl',
             data_path
         )
         logger.info(f"✅ Downloaded to {data_path}")
@@ -102,172 +100,72 @@ def download_data(spaces_client, bucket_name):
         logger.error(f"❌ Download failed: {e}")
         exit(1)
 
-def load_texts(data_path, max_samples=None):
-    """Load texts from JSONL file"""
-    logger.info("📚 Loading texts...")
+def load_triplet_data(data_path, max_samples=None):
+    """Load triplet data from JSONL file with query, positive, hard_neg structure"""
+    logger.info(f"📖 Loading triplet data from {data_path}")
     
-    texts = []
-    text_key_found = None
-    skipped_count = 0
-    
-    with open(data_path, 'r', encoding='utf-8') as f:
-        for i, line in enumerate(f):
-            if max_samples and i >= max_samples:
-                break
-            
-            try:
-                data = json.loads(line.strip())
-                
-                # Tự động detect key name từ sample đầu tiên
-                if text_key_found is None:
-                    if 'text' in data:
-                        text_key_found = 'text'
-                        logger.info("📄 Detected data format: using 'text' key")
-                    elif 'content' in data:
-                        text_key_found = 'content'
-                        logger.info("📄 Detected data format: using 'content' key")
-                    else:
-                        logger.warning(f"⚠️ No 'text' or 'content' key found. Available keys: {list(data.keys())}")
-                        continue
-                
-                # Lấy text content
-                text_content = data.get(text_key_found, '')
-                if text_content and len(text_content.strip()) > 20:
-                    texts.append(text_content.strip())
-                else:
-                    skipped_count += 1
-                    
-            except json.JSONDecodeError as e:
-                skipped_count += 1
-                if i < 5:  # Log first few decode errors
-                    logger.warning(f"⚠️ JSON decode error at line {i}: {e}")
-                continue
-    
-    logger.info(f"✅ Loaded {len(texts)} texts (skipped {skipped_count} invalid entries)")
-    if len(texts) == 0:
-        logger.error("❌ No valid texts found! Check your data format.")
-        exit(1)
-        
-    # Log sample text
-    if texts:
-        sample_text = texts[0][:100] + "..." if len(texts[0]) > 100 else texts[0]
-        logger.info(f"📝 Sample text: {sample_text}")
-    
-    return texts
-
-def create_training_examples(texts):
-    """
-    Create training examples using SimCSE approach
-    SimCSE: Same text với 2 lần forward pass (dropout tạo augmentation)
-    """
-    logger.info("🔧 Creating SimCSE training examples...")
-    
-    # CRITICAL: Giới hạn số examples để tránh OOM với large datasets
-    max_examples = int(os.getenv('MAX_TRAINING_EXAMPLES', '50000'))
-    
-    # SimCSE: Mỗi text là 1 example, model sẽ tự tạo positive pair qua dropout
-    # Format: InputExample(texts=[anchor, positive])
-    # Với SimCSE, anchor và positive là cùng 1 text (dropout tạo khác biệt)
     examples = []
     
-    limited_texts = texts[:max_examples]
+    try:
+        with open(data_path, 'r', encoding='utf-8') as f:
+            for line_num, line in enumerate(f, 1):
+                if max_samples and len(examples) >= max_samples:
+                    break
+                    
+                try:
+                    data = json.loads(line.strip())
+                    
+                    # Validate required fields
+                    if not all(key in data for key in ['query', 'positive', 'hard_neg']):
+                        logger.warning(f"Line {line_num}: Missing required fields (query, positive, hard_neg)")
+                        continue
+                    
+                    query = data['query'].strip()
+                    positive = data['positive'].strip()
+                    hard_neg = data['hard_neg'].strip()
+                    
+                    # Skip empty texts
+                    if not query or not positive or not hard_neg:
+                        logger.warning(f"Line {line_num}: Empty text found, skipping")
+                        continue
+                    
+                    # Create InputExample for triplet training
+                    # Format: InputExample(texts=[anchor, positive, negative])
+                    example = InputExample(texts=[query, positive, hard_neg])
+                    examples.append(example)
+                    
+                    if len(examples) % 5000 == 0:
+                        logger.info(f"   Loaded {len(examples)} triplets...")
+                        
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Line {line_num}: JSON decode error - {e}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"Line {line_num}: Unexpected error - {e}")
+                    continue
     
-    for text in limited_texts:
-        # SimCSE: Positive pair = same text (dropout makes them different)
-        examples.append(InputExample(
-            texts=[text, text]  # Anchor và positive giống nhau
-        ))
+    except FileNotFoundError:
+        logger.error(f"❌ Data file not found: {data_path}")
+        exit(1)
+    except Exception as e:
+        logger.error(f"❌ Error loading data: {e}")
+        exit(1)
     
-    logger.info(f"✅ Created {len(examples)} SimCSE training examples (max_allowed: {max_examples})")
-    logger.info(f"   📊 Method: SimCSE (dropout-based augmentation)")
-    logger.info(f"   📊 Each example uses same text twice for positive pair")
+    logger.info(f"✅ Loaded {len(examples)} triplet examples")
     
-    # Memory warning
-    if len(examples) > 50000:
-        logger.warning(f"⚠️ Large training set ({len(examples)} examples) may cause OOM")
-        logger.warning(f"💡 Consider setting MAX_TRAINING_EXAMPLES < 50000")
+    if len(examples) == 0:
+        logger.error("❌ No valid examples loaded!")
+        exit(1)
+    
+    # Log sample data for verification
+    if examples:
+        sample = examples[0]
+        logger.info("📝 Sample triplet:")
+        logger.info(f"   Query: {sample.texts[0][:100]}...")
+        logger.info(f"   Positive: {sample.texts[1][:100]}...")
+        logger.info(f"   Hard Negative: {sample.texts[2][:100]}...")
     
     return examples
-
-def build_synthetic_evaluation(texts, num_queries=500, num_corpus=5000):
-    """
-    Build synthetic evaluation set for Information Retrieval
-    Tạo queries và corpus từ texts để evaluate khả năng retrieval
-    
-    Returns:
-        queries: Dict[query_id, query_text]
-        corpus: Dict[doc_id, doc_text]
-        relevant_docs: Dict[query_id, Set[doc_id]] - ground truth
-    """
-    logger.info("🔧 Building synthetic evaluation set...")
-    
-    # Đảm bảo không vượt quá số texts có sẵn
-    num_queries = min(num_queries, len(texts) // 10)
-    num_corpus = min(num_corpus, len(texts))
-    
-    # Shuffle texts để random selection
-    eval_texts = texts.copy()
-    random.shuffle(eval_texts)
-    
-    # Split: 10% cho queries, 90% cho corpus
-    query_texts = eval_texts[:num_queries]
-    corpus_texts = eval_texts[num_queries:num_queries + num_corpus]
-    
-    # Build queries dict
-    queries = {}
-    for i, text in enumerate(query_texts):
-        query_id = f"q{i}"
-        # Lấy 1 phần của text làm query (simulate real query)
-        words = text.split()
-        if len(words) > 10:
-            query = ' '.join(words[:len(words)//2])  # Lấy nửa đầu làm query
-        else:
-            query = text
-        queries[query_id] = query
-    
-    # Build corpus dict
-    corpus = {}
-    for i, text in enumerate(corpus_texts):
-        doc_id = f"doc{i}"
-        corpus[doc_id] = text
-    
-    # Build relevant_docs (ground truth)
-    # Strategy: Tìm docs có overlap từ với query
-    relevant_docs = {}
-    
-    for query_id, query_text in queries.items():
-        query_words = set(query_text.lower().split())
-        relevant_set = set()
-        
-        # Tìm top-K docs có nhiều overlap words nhất
-        doc_scores = []
-        for doc_id, doc_text in corpus.items():
-            doc_words = set(doc_text.lower().split())
-            overlap = len(query_words & doc_words)
-            if overlap > 0:
-                doc_scores.append((doc_id, overlap))
-        
-        # Lấy top-3 làm relevant docs
-        doc_scores.sort(key=lambda x: x[1], reverse=True)
-        for doc_id, score in doc_scores[:3]:
-            relevant_set.add(doc_id)
-        
-        if relevant_set:  # Chỉ add nếu có relevant docs
-            relevant_docs[query_id] = relevant_set
-    
-    logger.info(f"✅ Synthetic evaluation set created:")
-    logger.info(f"   📊 Queries: {len(queries)}")
-    logger.info(f"   📊 Corpus: {len(corpus)}")
-    logger.info(f"   📊 Queries with relevant docs: {len(relevant_docs)}")
-    
-    # Log sample
-    if queries and corpus:
-        sample_qid = list(queries.keys())[0]
-        logger.info(f"   📝 Sample query: {queries[sample_qid][:100]}...")
-        if sample_qid in relevant_docs:
-            logger.info(f"   � Relevant docs: {len(relevant_docs[sample_qid])} docs")
-    
-    return queries, corpus, relevant_docs
 
 def train_model(model_name, examples, device, epochs=3, batch_size=64):
     """Train the embedding model with proper memory management"""
@@ -323,25 +221,35 @@ def train_model(model_name, examples, device, epochs=3, batch_size=64):
         prefetch_factor=2  
     )
     
-    # Loss function: MultipleNegativesRankingLoss cho SimCSE
-    # Loss này tự động tạo in-batch negatives từ các examples khác trong batch
-    train_loss = losses.MultipleNegativesRankingLoss(model)
-    logger.info("✅ Using MultipleNegativesRankingLoss (SimCSE compatible)")
+    # Loss function: TripletLoss for triplet training with hard negatives
+    train_loss = losses.TripletLoss(model)
+    logger.info("✅ Using TripletLoss for triplet training with hard negatives")
     
-    # Build synthetic evaluation set
-    logger.info("🔧 Building evaluation set from validation texts...")
-    # Extract texts from validation examples
-    val_texts = []
-    for ex in val_examples[:5000]:  # Giới hạn để tiết kiệm memory
-        val_texts.extend(ex.texts)
-    val_texts = list(set(val_texts))  # Remove duplicates
+    # Build synthetic evaluation set for triplet data
+    logger.info("🔧 Building evaluation set from validation triplets...")
     
-    # Build IR evaluation
-    queries, corpus, relevant_docs = build_synthetic_evaluation(
-        val_texts, 
-        num_queries=min(100, len(val_texts) // 50),  # Giảm xuống để tránh OOM
-        num_corpus=min(1000, len(val_texts))
-    )
+    # Create simplified evaluation from validation examples
+    queries = {}
+    corpus = {}
+    relevant_docs = {}
+    
+    # Sample from validation examples for evaluation
+    eval_samples = val_examples[:min(1000, len(val_examples))]  # Limit for memory
+    
+    for idx, example in enumerate(eval_samples):
+        query_id = f"q_{idx}"
+        pos_id = f"pos_{idx}"
+        
+        # Extract texts from triplet
+        query_text = example.texts[0]
+        positive_text = example.texts[1]
+        
+        queries[query_id] = query_text
+        corpus[pos_id] = positive_text
+        relevant_docs[query_id] = {pos_id}
+    
+    logger.info(f"✅ Created evaluation set: {len(queries)} queries, {len(corpus)} documents")
+    
     
     # Create InformationRetrievalEvaluator
     evaluator = InformationRetrievalEvaluator(
@@ -515,7 +423,7 @@ def main():
     model_name = os.getenv('BASE_MODEL', 'BAAI/bge-m3')
     epochs = int(os.getenv('EPOCHS', '3'))
     batch_size = int(os.getenv('GPU_BATCH_SIZE', '64')) 
-    max_samples = int(os.getenv('MAX_SAMPLES', '50000')) if os.getenv('MAX_SAMPLES') else 50000  # Default 50K
+    max_samples = int(os.getenv('MAX_SAMPLES', '30000')) if os.getenv('MAX_SAMPLES') else 30000  # Default 30K
     bucket_name = os.getenv('SPACES_BUCKET', 'legal-datalake')
     
     logger.info(f"📋 Configuration:")
@@ -545,9 +453,8 @@ def main():
         # Download data
         data_path = download_data(spaces_client, bucket_name)
         
-        # Load and prepare data
-        texts = load_texts(data_path, max_samples)
-        examples = create_training_examples(texts)
+        # Load triplet data and prepare examples
+        examples = load_triplet_data(data_path, max_samples)
         
         # Train model
         model = train_model(model_name, examples, device, epochs, batch_size)
