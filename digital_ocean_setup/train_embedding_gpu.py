@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-Simple and robust GPU training script for Vietnamese Legal documents
-Optimized for stability and ease of use - FP32 training only
+Improved GPU training script for Vietnamese Legal documents
+Using triplet data (query, positive, hard_neg) from law_vi.jsonl
 """
 
 import os
 import json
 import logging
 import time
+import sys
 import torch
 import boto3
+import numpy as np
 from datetime import datetime
 from sentence_transformers import SentenceTransformer, InputExample, losses
-from sentence_transformers.evaluation import InformationRetrievalEvaluator
+from sentence_transformers.evaluation import TripletEvaluator
 from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
-import hashlib
 import random
 
 # Setup logging
@@ -33,14 +34,14 @@ def check_gpu():
     """Check GPU availability and memory"""
     if not torch.cuda.is_available():
         logger.error("❌ CUDA not available")
-        exit(1)
+        sys.exit(1)
     
     device = torch.device('cuda')
     gpu_name = torch.cuda.get_device_name(0)
     total_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
     
-    logger.info(f"� GPU: {gpu_name}")
-    logger.info(f"� Total VRAM: {total_memory:.1f}GB")
+    logger.info(f"🔥 GPU: {gpu_name}")
+    logger.info(f"💾 Total VRAM: {total_memory:.1f}GB")
     
     return device
 
@@ -54,12 +55,8 @@ def log_memory_usage(context):
         logger.info(f"   Allocated: {allocated:.2f}GB")
         logger.info(f"   Cached: {cached:.2f}GB") 
         logger.info(f"   Peak: {max_allocated:.2f}GB")
-
-def monitor_memory(step_name):
-    """Monitor GPU memory usage"""
-    allocated = torch.cuda.memory_allocated() / 1e9
-    cached = torch.cuda.memory_reserved() / 1e9
-    logger.info(f"🔍 {step_name} - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
+    else:
+        logger.info(f"📊 Memory [{context}]: CUDA not available")
 
 def setup_spaces_client():
     """Setup Digital Ocean Spaces client"""
@@ -69,9 +66,9 @@ def setup_spaces_client():
     
     if not access_key or not secret_key:
         logger.error("❌ SPACES_ACCESS_KEY and SPACES_SECRET_KEY required!")
-        exit(1)
+        sys.exit(1)
     
-    region = 'sgp1' if 'sgp1' in endpoint else 'sfo3'
+    region = 'sfo3'
     
     client = boto3.client(
         's3',
@@ -86,193 +83,79 @@ def setup_spaces_client():
 
 def download_data(spaces_client, bucket_name):
     """Download training data from Spaces"""
-    data_path = '/tmp/data/merged_corpus.jsonl'
+    data_path = '/tmp/data/law_vi.jsonl'
     os.makedirs('/tmp/data', exist_ok=True)
     
     try:
-        logger.info("📥 Downloading training data...")
+        logger.info("📥 Downloading triplet training data...")
         spaces_client.download_file(
             bucket_name,
-            'process_data/rag_corpus/merged_corpus.jsonl',
+            'process_data/embed/law_vi.jsonl',
             data_path
         )
         logger.info(f"✅ Downloaded to {data_path}")
         return data_path
     except Exception as e:
         logger.error(f"❌ Download failed: {e}")
-        exit(1)
+        sys.exit(1)
 
-def load_texts(data_path, max_samples=None):
-    """Load texts from JSONL file"""
-    logger.info("📚 Loading texts...")
+def load_triplet_data(data_path, max_samples=None):
+    """Load triplet data from JSONL file and convert to triplet examples for TripletLoss"""
+    logger.info(f"📖 Loading triplet data from {data_path}")
     
-    texts = []
-    text_key_found = None
-    skipped_count = 0
-    
-    with open(data_path, 'r', encoding='utf-8') as f:
-        for i, line in enumerate(f):
-            if max_samples and i >= max_samples:
-                break
-            
-            try:
-                data = json.loads(line.strip())
-                
-                # Tự động detect key name từ sample đầu tiên
-                if text_key_found is None:
-                    if 'text' in data:
-                        text_key_found = 'text'
-                        logger.info("📄 Detected data format: using 'text' key")
-                    elif 'content' in data:
-                        text_key_found = 'content'
-                        logger.info("📄 Detected data format: using 'content' key")
-                    else:
-                        logger.warning(f"⚠️ No 'text' or 'content' key found. Available keys: {list(data.keys())}")
-                        continue
-                
-                # Lấy text content
-                text_content = data.get(text_key_found, '')
-                if text_content and len(text_content.strip()) > 20:
-                    texts.append(text_content.strip())
-                else:
-                    skipped_count += 1
-                    
-            except json.JSONDecodeError as e:
-                skipped_count += 1
-                if i < 5:  # Log first few decode errors
-                    logger.warning(f"⚠️ JSON decode error at line {i}: {e}")
-                continue
-    
-    logger.info(f"✅ Loaded {len(texts)} texts (skipped {skipped_count} invalid entries)")
-    if len(texts) == 0:
-        logger.error("❌ No valid texts found! Check your data format.")
-        exit(1)
-        
-    # Log sample text
-    if texts:
-        sample_text = texts[0][:100] + "..." if len(texts[0]) > 100 else texts[0]
-        logger.info(f"📝 Sample text: {sample_text}")
-    
-    return texts
-
-def create_training_examples(texts):
-    """
-    Create training examples using SimCSE approach
-    SimCSE: Same text với 2 lần forward pass (dropout tạo augmentation)
-    """
-    logger.info("🔧 Creating SimCSE training examples...")
-    
-    # CRITICAL: Giới hạn số examples để tránh OOM với large datasets
-    max_examples = int(os.getenv('MAX_TRAINING_EXAMPLES', '50000'))
-    
-    # SimCSE: Mỗi text là 1 example, model sẽ tự tạo positive pair qua dropout
-    # Format: InputExample(texts=[anchor, positive])
-    # Với SimCSE, anchor và positive là cùng 1 text (dropout tạo khác biệt)
     examples = []
     
-    limited_texts = texts[:max_examples]
-    
-    for text in limited_texts:
-        # SimCSE: Positive pair = same text (dropout makes them different)
-        examples.append(InputExample(
-            texts=[text, text]  # Anchor và positive giống nhau
-        ))
-    
-    logger.info(f"✅ Created {len(examples)} SimCSE training examples (max_allowed: {max_examples})")
-    logger.info(f"   📊 Method: SimCSE (dropout-based augmentation)")
-    logger.info(f"   📊 Each example uses same text twice for positive pair")
-    
-    # Memory warning
-    if len(examples) > 50000:
-        logger.warning(f"⚠️ Large training set ({len(examples)} examples) may cause OOM")
-        logger.warning(f"💡 Consider setting MAX_TRAINING_EXAMPLES < 50000")
-    
-    return examples
-
-def build_synthetic_evaluation(texts, num_queries=500, num_corpus=5000):
-    """
-    Build synthetic evaluation set for Information Retrieval
-    Tạo queries và corpus từ texts để evaluate khả năng retrieval
-    
-    Returns:
-        queries: Dict[query_id, query_text]
-        corpus: Dict[doc_id, doc_text]
-        relevant_docs: Dict[query_id, Set[doc_id]] - ground truth
-    """
-    logger.info("🔧 Building synthetic evaluation set...")
-    
-    # Đảm bảo không vượt quá số texts có sẵn
-    num_queries = min(num_queries, len(texts) // 10)
-    num_corpus = min(num_corpus, len(texts))
-    
-    # Shuffle texts để random selection
-    eval_texts = texts.copy()
-    random.shuffle(eval_texts)
-    
-    # Split: 10% cho queries, 90% cho corpus
-    query_texts = eval_texts[:num_queries]
-    corpus_texts = eval_texts[num_queries:num_queries + num_corpus]
-    
-    # Build queries dict
-    queries = {}
-    for i, text in enumerate(query_texts):
-        query_id = f"q{i}"
-        # Lấy 1 phần của text làm query (simulate real query)
-        words = text.split()
-        if len(words) > 10:
-            query = ' '.join(words[:len(words)//2])  # Lấy nửa đầu làm query
-        else:
-            query = text
-        queries[query_id] = query
-    
-    # Build corpus dict
-    corpus = {}
-    for i, text in enumerate(corpus_texts):
-        doc_id = f"doc{i}"
-        corpus[doc_id] = text
-    
-    # Build relevant_docs (ground truth)
-    # Strategy: Tìm docs có overlap từ với query
-    relevant_docs = {}
-    
-    for query_id, query_text in queries.items():
-        query_words = set(query_text.lower().split())
-        relevant_set = set()
+    try:
+        with open(data_path, 'r', encoding='utf-8') as f:
+            for line_num, line in enumerate(f, 1):
+                if max_samples and len(examples) >= max_samples:
+                    break
+                    
+                try:
+                    data = json.loads(line.strip())
+                    
+                    # Validate required fields
+                    if not all(key in data for key in ['query', 'positive', 'hard_neg']):
+                        logger.warning(f"Line {line_num}: Missing required fields (query, positive, hard_neg)")
+                        continue
+                    
+                    query = data['query'].strip()
+                    positive = data['positive'].strip()
+                    hard_neg = data['hard_neg'].strip()
+                    
+                    # Skip empty texts
+                    if not query or not positive or not hard_neg:
+                        logger.warning(f"Line {line_num}: Empty text found, skipping")
+                        continue
+                    
+                    # Create triplet example for TripletLoss
+                    example = InputExample(texts=[query, positive, hard_neg])
+                    examples.append(example)
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Line {line_num}: JSON decode error - {e}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"Line {line_num}: Unexpected error - {e}")
+                    continue
+                    
+                # Log progress every 10000 lines
+                if line_num % 10000 == 0:
+                    logger.info(f"Processed {line_num} lines, created {len(examples)} examples")
         
-        # Tìm top-K docs có nhiều overlap words nhất
-        doc_scores = []
-        for doc_id, doc_text in corpus.items():
-            doc_words = set(doc_text.lower().split())
-            overlap = len(query_words & doc_words)
-            if overlap > 0:
-                doc_scores.append((doc_id, overlap))
+        logger.info(f"✅ Loaded {len(examples)} triplet examples")
+        return examples
         
-        # Lấy top-3 làm relevant docs
-        doc_scores.sort(key=lambda x: x[1], reverse=True)
-        for doc_id, score in doc_scores[:3]:
-            relevant_set.add(doc_id)
-        
-        if relevant_set:  # Chỉ add nếu có relevant docs
-            relevant_docs[query_id] = relevant_set
-    
-    logger.info(f"✅ Synthetic evaluation set created:")
-    logger.info(f"   📊 Queries: {len(queries)}")
-    logger.info(f"   📊 Corpus: {len(corpus)}")
-    logger.info(f"   📊 Queries with relevant docs: {len(relevant_docs)}")
-    
-    # Log sample
-    if queries and corpus:
-        sample_qid = list(queries.keys())[0]
-        logger.info(f"   📝 Sample query: {queries[sample_qid][:100]}...")
-        if sample_qid in relevant_docs:
-            logger.info(f"   � Relevant docs: {len(relevant_docs[sample_qid])} docs")
-    
-    return queries, corpus, relevant_docs
-
-def train_model(model_name, examples, device, epochs=3, batch_size=64):
-    """Train the embedding model with proper memory management"""
+    except FileNotFoundError:
+        logger.error(f"❌ File not found: {data_path}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"❌ Error loading data: {e}")
+        sys.exit(1)
+                    
+def train_model(model_name, examples, device, epochs=5, batch_size=64):
+    """Train the embedding model with triplet loss and evaluation"""
     logger.info(f"🤖 Loading model: {model_name}")
-    
     
     # Clear ALL GPU memory first
     torch.cuda.empty_cache()
@@ -284,7 +167,7 @@ def train_model(model_name, examples, device, epochs=3, batch_size=64):
         
         # Disable gradient checkpointing for faster training
         use_gradient_checkpointing = os.getenv('USE_GRADIENT_CHECKPOINTING', 'false').lower() == 'true'
-        if use_gradient_checkpointing and hasattr(model[0].auto_model, 'gradient_checkpointing_enable'):
+        if use_gradient_checkpointing and hasattr(model[0], 'auto_model') and hasattr(model[0].auto_model, 'gradient_checkpointing_enable'):
             model[0].auto_model.gradient_checkpointing_enable()
             logger.info("✅ Gradient checkpointing enabled")
         else:
@@ -293,15 +176,14 @@ def train_model(model_name, examples, device, epochs=3, batch_size=64):
         logger.info("✅ Model loaded successfully")
         
         # Log memory usage after model loading
-        allocated = torch.cuda.memory_allocated() / 1e9
-        logger.info(f"🔍 GPU memory after model load: {allocated:.2f} GB")
+        log_memory_usage("After model load")
         
     except Exception as e:
         logger.error(f"❌ Failed to load model: {e}")
         torch.cuda.empty_cache()
-        exit(1)
+        sys.exit(1)
     
-    # Split data with memory consideration
+    # Split data for training and evaluation (9:1 ratio as requested)
     train_examples, val_examples = train_test_split(
         examples, test_size=0.1, random_state=42
     )
@@ -312,54 +194,52 @@ def train_model(model_name, examples, device, epochs=3, batch_size=64):
     # Get num_workers from environment variable or use default
     num_workers = int(os.getenv('DATALOADER_NUM_WORKERS', '4'))  
     
-    # CRITICAL: Memory-optimized DataLoader - tắt pin_memory với large datasets
+    # Create DataLoader for training
     train_dataloader = DataLoader(
         train_examples, 
         shuffle=True, 
         batch_size=batch_size,
         num_workers=num_workers,
-        pin_memory=False,  
-        persistent_workers=False,  
-        prefetch_factor=2  
+        pin_memory=False,
+        persistent_workers=False,
+        prefetch_factor=2
     )
     
-    # Loss function: MultipleNegativesRankingLoss cho SimCSE
-    # Loss này tự động tạo in-batch negatives từ các examples khác trong batch
-    train_loss = losses.MultipleNegativesRankingLoss(model)
-    logger.info("✅ Using MultipleNegativesRankingLoss (SimCSE compatible)")
+    # Define TripletLoss
+    train_loss = losses.TripletLoss(model=model, margin=0.2)
     
-    # Build synthetic evaluation set
-    logger.info("🔧 Building evaluation set from validation texts...")
-    # Extract texts from validation examples
-    val_texts = []
-    for ex in val_examples[:5000]:  # Giới hạn để tiết kiệm memory
-        val_texts.extend(ex.texts)
-    val_texts = list(set(val_texts))  # Remove duplicates
+    # Prepare evaluation data for TripletEvaluator
+    anchors = []
+    positives = []
+    negatives = []
+
+    # Take first 5000 validation examples for evaluation to avoid memory issues
+    eval_examples = random.sample(val_examples, min(5000, len(val_examples)))
     
-    # Build IR evaluation
-    queries, corpus, relevant_docs = build_synthetic_evaluation(
-        val_texts, 
-        num_queries=min(100, len(val_texts) // 50),  # Giảm xuống để tránh OOM
-        num_corpus=min(1000, len(val_texts))
+    for example in eval_examples:
+        anchors.append(example.texts[0])  # query
+        positives.append(example.texts[1])  # positive
+        negatives.append(example.texts[2])  # hard_neg
+    
+    # Create TripletEvaluator
+    evaluator = TripletEvaluator(
+    anchors=anchors,
+    positives=positives,
+    negatives=negatives,
+    name="triplet_evaluation",
+    normalize_embeddings=True
     )
-    
-    # Create InformationRetrievalEvaluator
-    evaluator = InformationRetrievalEvaluator(
-        queries=queries,
-        corpus=corpus,
-        relevant_docs=relevant_docs,
-        name='legal-ir-eval',
-        show_progress_bar=False,  # Tắt progress bar để giảm overhead
-        batch_size=32  # Batch size cho evaluation
-    )
-    logger.info("✅ InformationRetrievalEvaluator created")
+
     
     # Training with memory optimization
     logger.info(f"🔥 Starting training...")
     logger.info(f"   Epochs: {epochs}")
     logger.info(f"   Batch size: {batch_size}")
     logger.info(f"   Num workers: {num_workers}")
-    logger.info(f"   Gradient checkpointing: {use_gradient_checkpointing}")
+    logger.info(f"   Training samples: {len(train_examples)}")
+    logger.info(f"   Evaluation samples: {len(eval_examples)}")
+    logger.info(f"   Loss function: TripletLoss")
+    logger.info(f"   Evaluator: TripletEvaluator")
     
     start_time = time.time()
     
@@ -369,58 +249,33 @@ def train_model(model_name, examples, device, epochs=3, batch_size=64):
     try:
         # Get additional memory optimization settings
         max_seq_length = int(os.getenv('MAX_SEQ_LENGTH', '256'))
-        gradient_accumulation_steps = int(os.getenv('GRADIENT_ACCUMULATION_STEPS', '4'))  # Default 4 thay vì 1
         
-        # CRITICAL: Giới hạn max_seq_length của model để tiết kiệm memory
+        # Set max sequence length for memory optimization
         if hasattr(model, 'max_seq_length'):
             model.max_seq_length = max_seq_length
             logger.info(f"✅ Set max_seq_length = {max_seq_length}")
         
-        # Training arguments with AGGRESSIVE memory optimization
-        training_args = {
-            'train_objectives': [(train_dataloader, train_loss)],
-            'evaluator': evaluator,
-            'epochs': epochs,
-            'evaluation_steps': max(500, len(train_dataloader) // 2),  # Giảm tần suất evaluation
-            'warmup_steps': int(len(train_dataloader) * 0.05),  # Giảm warmup steps
-            'optimizer_params': {
-                'lr': float(os.getenv('LEARNING_RATE', '2e-5')),
-            },
-            'output_path': '/tmp/model',
-            'save_best_model': True,
-            'show_progress_bar': True,
-            'checkpoint_path': None,  # ❌ TẮT checkpointing
-            'checkpoint_save_steps': 0,  # ❌ TẮT intermediate checkpoints
-            'checkpoint_save_total_limit': 0,  # ❌ Không lưu checkpoints
-            'max_grad_norm': 1.0,
-            'use_amp': False,  # ❌ TẮT AMP để tránh memory fragmentation
-        }
+        # Improved learning rate
+        learning_rate = float(os.getenv('LEARNING_RATE', '2e-5'))
         
-        # Gradient accumulation để maintain effective batch size với batch nhỏ hơn
-        if gradient_accumulation_steps > 1:
-            training_args['steps_per_epoch'] = len(train_dataloader) // gradient_accumulation_steps
-            logger.info(f"✅ Gradient accumulation: {gradient_accumulation_steps} steps")
-            logger.info(f"   Effective batch size: {batch_size * gradient_accumulation_steps}")
+        logger.info(f"📊 Training settings:")
+        logger.info(f"   Learning rate: {learning_rate}")
+        logger.info(f"   Warmup steps: {int(len(train_dataloader) * 0.1)}")
+        logger.info(f"   Evaluation steps: {max(200, len(train_dataloader) // 4)}")
         
-        # CRITICAL: Thêm callback để clear cache mỗi N steps
-        class MemoryClearCallback:
-            def __init__(self, clear_every_n_steps=50):
-                self.clear_every_n_steps = clear_every_n_steps
-                self.step_count = 0
+        # Start training
+        model.fit(
+            train_objectives=[(train_dataloader, train_loss)],
+            evaluator=evaluator,
+            epochs=epochs,
+            evaluation_steps=max(200, len(train_dataloader) // 4),
+            warmup_steps=int(len(train_dataloader) * 0.1),
+            optimizer_params={'lr': learning_rate},
+            output_path='/tmp/model',
+            save_best_model=True,
+            show_progress_bar=True
+        )
             
-            def on_step_end(self, *args, **kwargs):
-                self.step_count += 1
-                if self.step_count % self.clear_every_n_steps == 0:
-                    torch.cuda.empty_cache()
-                    if self.step_count % 200 == 0:  # Log mỗi 200 steps
-                        allocated = torch.cuda.memory_allocated() / 1e9
-                        logger.info(f"🧹 Memory cleared at step {self.step_count}: {allocated:.2f}GB")
-        
-        # Simple training without FP16 complications
-        logger.info("🚀 Starting model.fit() with memory optimizations...")
-        
-        model.fit(**training_args)
-        
         # Clear cache after training
         torch.cuda.empty_cache()
         logger.info("✅ Training completed, memory cleared")
@@ -431,9 +286,9 @@ def train_model(model_name, examples, device, epochs=3, batch_size=64):
         logger.error(f"   - Allocated: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
         logger.error(f"   - Reserved: {torch.cuda.memory_reserved() / 1e9:.2f} GB") 
         logger.error("💡 Recommendations:")
-        logger.error(f"   - Current batch_size: {batch_size} → try batch_size=1")
-        logger.error(f"   - Current max_samples: {os.getenv('MAX_SAMPLES')} → try 10000")
-        logger.error("   - Enable gradient_accumulation_steps to maintain effective batch size")
+        logger.error(f"   - Current batch_size: {batch_size} → try batch_size=16")
+        logger.error(f"   - Reduce max_seq_length or eval corpus size")
+        logger.error(f"   - Try using gradient checkpointing")
         
         # Clean up memory
         del model
@@ -461,6 +316,12 @@ def upload_model(spaces_client, bucket_name, model_name):
     logger.info(f"📤 Uploading model to {s3_prefix}...")
     
     model_dir = '/tmp/model'
+    
+    # Check if model directory exists
+    if not os.path.exists(model_dir):
+        logger.error(f"❌ Model directory not found: {model_dir}")
+        return None
+    
     uploaded_files = []
     
     # Upload all files
@@ -482,18 +343,23 @@ def upload_model(spaces_client, bucket_name, model_name):
         "model_name": f"embedding_model_gpu_{timestamp}",
         "base_model": model_name,
         "training_date": timestamp,
-        "gpu_used": torch.cuda.get_device_name(),
+        "gpu_used": torch.cuda.get_device_name() if torch.cuda.is_available() else "Unknown",
         "model_path": s3_prefix,
-        "uploaded_files": uploaded_files
+        "uploaded_files": uploaded_files,
+        "training_data": "law_vi.jsonl (triplet format)"
     }
     
     metadata_path = os.path.join(model_dir, 'metadata.json')
-    with open(metadata_path, 'w', encoding='utf-8') as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False)
-    
-    spaces_client.upload_file(
-        metadata_path, bucket_name, f"{s3_prefix}/metadata.json"
-    )
+    try:
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        
+        spaces_client.upload_file(
+            metadata_path, bucket_name, f"{s3_prefix}/metadata.json"
+        )
+        logger.info("✅ Metadata uploaded successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to upload metadata: {e}")
     
     logger.info(f"🎉 Model uploaded successfully!")
     logger.info(f"📍 Model path: {s3_prefix}")
@@ -502,20 +368,16 @@ def upload_model(spaces_client, bucket_name, model_name):
 
 def main():
     """Main training function"""
-    logger.info("🚀 Starting Vietnamese Legal Embedding Training")
+    logger.info("🚀 Starting Vietnamese Legal Embedding Training with Triplet Data")
     
-    # CRITICAL: Set memory optimization GLOBALLY before anything else
+    # Set memory optimization GLOBALLY before anything else
     os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True,max_split_size_mb:512'
-    
-    # CRITICAL: Giới hạn số lượng threads để tránh memory overhead
-    #os.environ['OMP_NUM_THREADS'] = '4'
-    #os.environ['MKL_NUM_THREADS'] = '4'
     
     # Configuration from environment
     model_name = os.getenv('BASE_MODEL', 'BAAI/bge-m3')
     epochs = int(os.getenv('EPOCHS', '3'))
-    batch_size = int(os.getenv('GPU_BATCH_SIZE', '64')) 
-    max_samples = int(os.getenv('MAX_SAMPLES', '50000')) if os.getenv('MAX_SAMPLES') else 50000  # Default 50K
+    batch_size = int(os.getenv('GPU_BATCH_SIZE', '32'))
+    max_samples = int(os.getenv('MAX_SAMPLES', '30000')) if os.getenv('MAX_SAMPLES') else 30000
     bucket_name = os.getenv('SPACES_BUCKET', 'legal-datalake')
     
     logger.info(f"📋 Configuration:")
@@ -524,8 +386,11 @@ def main():
     logger.info(f"   Batch size: {batch_size}")
     logger.info(f"   Max samples: {max_samples}")
     logger.info(f"   Bucket: {bucket_name}")
-    logger.info(f"   Memory optimization: AGGRESSIVE")
-    logger.info(f"   PYTORCH_CUDA_ALLOC_CONF: {os.environ['PYTORCH_CUDA_ALLOC_CONF']}")
+    logger.info(f"   Data format: Triplet (query, positive, hard_neg)")
+    logger.info(f"   Loss function: TripletLoss")
+    logger.info(f"   Train/Eval split: 9:1")
+    logger.info(f"   Memory optimization: ENABLED")
+    logger.info(f"   Data source: Digital Ocean Spaces")
     
     try:
         # Setup GPU and clear memory first
@@ -542,18 +407,21 @@ def main():
         os.makedirs('/tmp/model', exist_ok=True)
         os.makedirs('/tmp/logs', exist_ok=True)
         
-        # Download data
+        # Download data from Spaces
         data_path = download_data(spaces_client, bucket_name)
         
-        # Load and prepare data
-        texts = load_texts(data_path, max_samples)
-        examples = create_training_examples(texts)
+        # Load triplet data and prepare examples
+        examples = load_triplet_data(data_path, max_samples)
         
         # Train model
         model = train_model(model_name, examples, device, epochs, batch_size)
         
         # Upload model
         model_path = upload_model(spaces_client, bucket_name, model_name)
+        
+        if model_path is None:
+            logger.error("❌ Model upload failed!")
+            sys.exit(1)
         
         # Final memory cleanup and logging
         del model
