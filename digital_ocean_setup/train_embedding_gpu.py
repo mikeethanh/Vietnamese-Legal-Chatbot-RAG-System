@@ -173,7 +173,13 @@ def evaluate_baseline(model, val_examples, device):
     )
     
     # Evaluate
-    baseline_score = evaluator(model, output_path='/tmp/baseline_eval')
+    baseline_result = evaluator(model, output_path='/tmp/baseline_eval')
+    
+    # Extract accuracy from result (TripletEvaluator returns a dict or float)
+    if isinstance(baseline_result, dict):
+        baseline_score = baseline_result.get('accuracy', baseline_result.get('cosine_accuracy', 0.0))
+    else:
+        baseline_score = baseline_result
     
     logger.info(f"✅ Baseline Accuracy: {baseline_score:.4f}")
     logger.info(f"   (Percentage of cases where anchor is closer to positive than negative)")
