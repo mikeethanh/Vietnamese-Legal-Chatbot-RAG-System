@@ -90,11 +90,11 @@ async def create_vector_collection(data: Dict):
 @app.post("/document/create")
 async def create_document(data: Dict):
     doc_id = data.get("id")
-    title = data.get("title")
+    question = data.get("question")
     content = data.get("content")
-    create_status = insert_document(title, content)
+    create_status = insert_document(question, content)
     logging.info(f"Create document status: {create_status}")
-    index_status = index_document_v2(doc_id, title, content)
+    index_status = index_document_v2(doc_id, question, content)
     return {"status": create_status is not None, "index_status": index_status}
 
 

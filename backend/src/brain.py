@@ -40,14 +40,14 @@ def get_embedding(text, model=None):
 def gen_doc_prompt(docs):
     """
     Document:
-    Title: Uong atiso ...
-    Content: ....
+    Question: Trong Bộ luật Hình sự thì bao nhiêu tuổi được xem là người già...
+    Answer: Người cao tuổi, người già...
     """
     doc_prompt = ""
     for doc in docs:
-        doc_prompt += f"Title: {doc['title']} \n Content: {doc['content']} \n"
+        doc_prompt += f"Câu hỏi: {doc['question']} \n Câu trả lời: {doc['content']} \n\n"
 
-    return "Document: \n + {}".format(doc_prompt)
+    return "Tài liệu tham khảo: \n{}".format(doc_prompt)
 
 
 def generate_conversation_text(conversations):

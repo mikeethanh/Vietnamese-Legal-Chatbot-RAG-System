@@ -30,7 +30,7 @@
 
     CREATE TABLE document (
         id INT NOT NULL AUTO_INCREMENT,
-        title VARCHAR(100) NOT NULL,
+        question VARCHAR(2000) NOT NULL,
         content TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

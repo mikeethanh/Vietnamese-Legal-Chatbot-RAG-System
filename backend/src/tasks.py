@@ -122,8 +122,8 @@ QUAN TRỌNG: Chỉ sử dụng thông tin từ các tài liệu được cung c
     return assistant_answer
 
 
-def index_document_v2(id, title, content, collection_name=DEFAULT_COLLECTION_NAME):
-    text = title + ' ' + content
+def index_document_v2(id, question, content, collection_name=DEFAULT_COLLECTION_NAME):
+    text = question + ' ' + content
     nodes = split_document(text)
     status_list = []
     for node in nodes:
@@ -134,7 +134,7 @@ def index_document_v2(id, title, content, collection_name=DEFAULT_COLLECTION_NAM
                 id: {
                     "vector": vector,
                     "payload": {
-                        "title": title,
+                        "question": question,
                         "content": node.text
                     }
                 }
