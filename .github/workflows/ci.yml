@@ -1,32 +1,34 @@
-name: CI
+name: Vietnamese Legal Chatbot CI/CD Pipeline
 
 on:
-  pull_request:
-    branches: [ main, develop ]
   push:
-    branches: [ main, develop ]
+    branches: [main, develop, feat/*]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
 
 env:
   PYTHON_VERSION: "3.12"
+  NODE_VERSION: "18"
 
 jobs:
-  test:
-    name: Test (pytest + coverage if exist)
+  # Job 1: Code Quality & Security
+  quality:
+    name: Code Quality & Security
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ "3.12" ]
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Cache pip
+      - name: Cache pip dependencies
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
@@ -34,44 +36,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install dependencies (prod + dev if present)
+      - name: Install dependencies
         run: |
-          # install production deps if exist
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-          # install dev deps if exist (recommended)
-          if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt
-          else
-            pip install pytest coverage || true
-            pip install pre-commit mypy || true
-            pip install build || true
+          python -m pip install --upgrade pip
+          pip install -r requirements_dev.txt
+          if [ -f backend/requirements.txt ]; then
+            pip install -r backend/requirements.txt
           fi
 
-      - name: Run pytest (only if tests exist)
-        run: |
-          # tìm tests/ folder hoặc test_*.py
-          if [ -d tests ] || ls **/test_*.py 2>/dev/null | grep -q .; then
-            echo "Found tests — running pytest..."
-            pytest -q -ra --maxfail=1
-          else
-            echo "No tests found — skipping pytest."
-          fi
-
-  quality:
-    name: Code Quality (pre-commit + mypy + flake8)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Cache pre-commit
+      - name: Cache pre-commit hooks
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
@@ -79,76 +52,302 @@ jobs:
           restore-keys: |
             pre-commit-
 
-      - name: Install dev dependencies
+      - name: Install pre-commit hooks
+        run: pre-commit install
+
+      - name: Run pre-commit checks
+        run: pre-commit run --all-files
+
+      - name: Run static type checking with mypy
         run: |
-          if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt
-          else
-            pip install pre-commit mypy flake8 || true
+          mypy backend/src --config-file mypy.ini || echo "Type checking completed with warnings"
+
+      - name: Run security check with bandit
+        run: |
+          bandit -r backend/src -f json -o bandit-report.json || true
+          if [ -f bandit-report.json ]; then
+            echo "Security scan completed - check bandit-report.json for details"
           fi
 
-      - name: Run pre-commit (if config present)
-        run: |
-          if [ -f .pre-commit-config.yaml ]; then
-            pre-commit run --all-files
-          else
-            echo "No .pre-commit-config.yaml — skipping pre-commit."
-          fi
+      - name: Upload security report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report
+          path: bandit-report.json
 
-      - name: Run type checking (mypy)
-        run: |
-          if command -v mypy >/dev/null 2>&1; then
-            if [ -d backend/src ]; then
-              mypy backend/src || true
-            else
-              mypy . || true
-            fi
-          else
-            echo "mypy not installed — skipping."
-          fi
-
-      - name: Run flake8 (optional)
-        run: |
-          if command -v flake8 >/dev/null 2>&1; then
-            if [ -d backend/src ]; then
-              flake8 backend/src || true
-            else
-              flake8 || true
-            fi
-          else
-            echo "flake8 not installed — skipping."
-          fi
-
-  build:
-    name: Build (artifact)
+  # Job 2: Backend Testing
+  test-backend:
+    name: Backend Tests
     runs-on: ubuntu-latest
-    needs: [ test, quality ]
+    needs: quality
+    
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: test_legal_db
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+        ports:
+          - 3306:3306
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-${{ matrix.python-version }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.python-version }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_dev.txt
+          if [ -f backend/requirements.txt ]; then
+            pip install -r backend/requirements.txt
+          fi
+
+      - name: Set up test environment
+        run: |
+          echo "OPENAI_API_KEY=test-key" >> $GITHUB_ENV
+          echo "REDIS_URL=redis://localhost:6379" >> $GITHUB_ENV
+          echo "DATABASE_URL=mysql://root:test_password@localhost:3306/test_legal_db" >> $GITHUB_ENV
+          echo "QDRANT_URL=http://localhost:6333" >> $GITHUB_ENV
+          echo "DEBUG=true" >> $GITHUB_ENV
+
+      - name: Wait for services
+        run: |
+          for i in {1..30}; do
+            if redis-cli -h localhost ping > /dev/null 2>&1; then
+              echo "Redis is ready"
+              break
+            fi
+            echo "Waiting for Redis..."
+            sleep 2
+          done
+          
+          for i in {1..30}; do
+            if mysqladmin ping -h localhost -u root -ptest_password > /dev/null 2>&1; then
+              echo "MySQL is ready"
+              break
+            fi
+            echo "Waiting for MySQL..."
+            sleep 2
+          done
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v \
+            --cov=backend/src \
+            --cov-report=html:htmlcov \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --junit-xml=pytest-results.xml \
+            --tb=short \
+            -m "not integration"
+
+      - name: Run integration tests
+        run: |
+          pytest tests/ -v \
+            --tb=short \
+            -m "integration"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: |
+            pytest-results.xml
+            htmlcov/
+            coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.python-version == '3.12'
+        with:
+          file: ./coverage.xml
+          flags: backend
+          name: backend-coverage
+
+  # Job 3: Frontend Testing  
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    needs: quality
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install build tool
+      - name: Install frontend dependencies
         run: |
-          pip install build || true
+          cd frontend
+          pip install -r requirements.txt
 
-      - name: Build package (if pyproject or setup.py present)
+      - name: Test Streamlit app
         run: |
-          if [ -f pyproject.toml ] || [ -f setup.py ]; then
-            python -m build
+          cd frontend
+          python -m py_compile chat_interface.py
+          echo "Frontend syntax check passed"
+
+  # Job 4: Docker Build & Test
+  docker-test:
+    name: Docker Build & Test
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend Docker image
+        run: |
+          cd backend
+          docker build -t legal-chatbot-backend:test .
+
+      - name: Build frontend Docker image
+        run: |
+          cd frontend  
+          docker build -t legal-chatbot-frontend:test .
+
+      - name: Test Docker containers
+        run: |
+          # Test backend container
+          docker run --rm -d --name backend-test \
+            -e OPENAI_API_KEY=test-key \
+            -e REDIS_URL=redis://localhost:6379 \
+            -p 8000:8000 \
+            legal-chatbot-backend:test
+          
+          sleep 10
+          
+          # Health check
+          if curl -f http://localhost:8000/health; then
+            echo "Backend container health check passed"
           else
-            echo "No pyproject.toml or setup.py — skipping package build."
-            mkdir -p dist
-            echo "no-package" > dist/README.txt
+            echo "Backend container health check failed"
+            exit 1
           fi
+          
+          docker stop backend-test
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+  # Job 5: Security Scanning
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: quality
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
         with:
-          name: dist
-          path: dist/
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Job 6: Performance Testing
+  performance:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    needs: docker-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install performance testing tools
+        run: |
+          pip install locust pytest-benchmark
+
+      - name: Run performance tests
+        run: |
+          echo "Performance tests would run here"
+          # Add actual performance tests later
+
+  # Job 7: Deploy Staging (if main branch)
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [docker-test, security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: staging
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: |
+          echo "Deployment to staging environment would happen here"
+          # Add actual deployment scripts
+
+  # Job 8: Notification
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend, docker-test, security]
+    if: always()
+    
+    steps:
+      - name: Notify on success
+        if: ${{ needs.test-backend.result == 'success' && needs.test-frontend.result == 'success' }}
+        run: |
+          echo "✅ All tests passed successfully!"
+          
+      - name: Notify on failure
+        if: ${{ needs.test-backend.result == 'failure' || needs.test-frontend.result == 'failure' }}
+        run: |
+          echo "❌ Some tests failed. Please check the logs."

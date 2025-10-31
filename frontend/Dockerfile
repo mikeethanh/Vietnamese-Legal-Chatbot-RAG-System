@@ -15,7 +15,7 @@ COPY ./requirements.txt /usr/src/app/
 # install dependencies
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
-
+RUN chmod +x /usr/src/app/entrypoint.sh
 
 # run entrypoint.sh
 ENTRYPOINT ["/usr/src/app/entrypoint.sh"]

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 CUSTOM_EMBEDDING_API_URL = os.environ.get(
     "CUSTOM_EMBEDDING_API_URL", 
-    "http://178.128.225.249:5000"
+    "http://143.198.38.182:5000"
 )
 CUSTOM_EMBEDDING_ENABLED = os.environ.get(
     "CUSTOM_EMBEDDING_ENABLED", 

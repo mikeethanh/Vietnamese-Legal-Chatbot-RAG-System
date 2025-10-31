@@ -17,7 +17,7 @@ from models import update_chat_conversation, get_conversation_messages
 from vectorize import search_vector, add_vector
 from rerank import rerank_documents
 from query_rewriter import rewrite_query_to_multi_queries, rewrite_query_with_context
-from search import search_engine
+from tavily_tool import tavily_search_legal
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -184,18 +184,18 @@ def bot_route_answer_message(history, question):
         return agent_response
     
     elif route == 'web_search':
-        # Use web search for current information
-        logger.info("Using web search for query")
+        # Use Tavily AI search for current information
+        logger.info("Using Tavily web search for query")
         
         # Rephrase question if it's a follow-up
         standalone_question = follow_up_question(history, question)
         
-        # Search the web
-        search_results = search_engine(standalone_question, top_k=5)
+        # Search the web using Tavily
+        search_results = tavily_search_legal(standalone_question, max_results=5)
         
         # Generate answer based on search results
         system_prompt = """Bạn là trợ lý AI giúp tìm kiếm thông tin pháp luật trên internet. 
-Hãy tổng hợp và trả lời câu hỏi dựa trên kết quả tìm kiếm được cung cấp."""
+        Hãy tổng hợp và trả lời câu hỏi dựa trên kết quả tìm kiếm được cung cấp."""
         
         openai_messages = [
             {"role": "system", "content": system_prompt}

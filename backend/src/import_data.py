@@ -72,8 +72,9 @@ def import_qa_data(data_file_path=DATA_FILE_PATH, collection_name=DEFAULT_COLLEC
                 
                 # Process each chunk
                 for chunk_idx, node in enumerate(nodes):
-                    # Generate unique ID for this chunk
-                    point_id = f"{idx}_{chunk_idx}"
+                    # Generate unique ID for this chunk (must be integer for Qdrant)
+                    # Using formula: idx * 1000 + chunk_idx to ensure uniqueness
+                    point_id = idx * 1000 + chunk_idx
                     
                     # Get embedding
                     vector = get_embedding(node.text)

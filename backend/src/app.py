@@ -97,6 +97,11 @@ async def create_document(data: Dict):
     index_status = index_document_v2(doc_id, question, content)
     return {"status": create_status is not None, "index_status": index_status}
 
+@app.post("/data/import")
+async def import_qa_data_endpoint():
+    from import_data import import_qa_data
+    success = import_qa_data()
+    return {"success": success}
 
 if __name__ == "__main__":
     import uvicorn
