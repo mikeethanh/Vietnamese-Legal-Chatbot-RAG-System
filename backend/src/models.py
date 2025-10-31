@@ -95,16 +95,16 @@ class Document(Base):
     __tablename__ = 'document'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(2000), nullable=False, default="")
+    question = Column(String(2000), nullable=False, default="")
     content = Column(String)  # Assuming TextField is equivalent to String in SQLAlchemy
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 #insert document into database
-def insert_document(title: str, content: str):
+def insert_document(question: str, content: str):
     # Step 1: Create a new Document instance
     new_doc = Document(
-        title=title,
+        question=question,
         content=content,
     )
     # Step 2: Save the Document instance

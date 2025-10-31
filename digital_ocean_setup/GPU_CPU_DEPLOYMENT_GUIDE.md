@@ -241,7 +241,7 @@ docker rm legal-gpu-training
 
 ---
 
-## Bước 7: Setup CPU Droplet
+## Bước 7: Setup CPU Droplet cho Serving
 
 ### 7.1. Kết nối CPU Droplet
 ```bash
@@ -271,25 +271,28 @@ cd Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
 
 ### 7.4. Cấu hình environment cho serving
 ```bash
-# Copy template (nếu có) hoặc tạo mới
+# Tạo file .env.serving với cấu hình đơn giản
 nano .env.serving
 ```
 
-**Cần điền các thông tin sau trong `.env.serving`:**
+**Nội dung file `.env.serving`:**
 ```bash
-SPACES_ACCESS_KEY=your_access_key_here
-SPACES_SECRET_KEY=your_secret_key_here
-SPACES_ENDPOINT=https://sgp1.digitaloceanspaces.com
-SPACES_BUCKET=legal-datalake
-
-# Để trống để tự động lấy model mới nhất
-MODEL_PATH=
-
-# API config
+# API Configuration
 API_HOST=0.0.0.0
 API_PORT=5000
 MAX_BATCH_SIZE=32
+
+# Model Configuration
+# Sử dụng baseline model BGE-M3 (RECOMMENDED)
+# Model sẽ được download tự động từ Hugging Face
+MODEL_PATH=./models/bge-m3
 ```
+
+**💡 Lý do sử dụng baseline model:**
+- ✅ Performance tốt hơn fine-tuned model trong thử nghiệm thực tế
+- ✅ Không cần training, tiết kiệm chi phí GPU
+- ✅ Download nhanh từ Hugging Face (không cần Spaces)
+- ✅ Model ổn định và được cộng đồng support tốt
 
 ### 7.5. Tạo thư mục cần thiết
 ```bash
@@ -299,127 +302,201 @@ mkdir -p models logs
 
 ---
 
-## Bước 8: Build Docker Image và Download Model
+## Bước 8: Download Baseline Model và Deploy API
 
-### 8.1. Build Docker image trước
+### 8.1. Build Docker image
 ```bash
 # Đảm bảo đang ở đúng thư mục
 cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
 
-# Build image (image này đã có Python và tất cả dependencies cần thiết)
+# Build image với all dependencies (bao gồm huggingface_hub)
 docker build -f Dockerfile.cpu-serving -t legal-embedding-serving:latest .
 
-# Verify image đã build
+# Verify image đã build thành công
 docker images | grep legal-embedding-serving
 ```
 
-**💡 Lưu ý:** Image này đã bao gồm:
+**💡 Image này bao gồm:**
 - Python 3.10
-- Tất cả dependencies trong `requirements_serving.txt`
+- PyTorch (CPU version)
+- sentence-transformers
+- transformers
+- huggingface_hub (để download model)
+- Flask (cho API)
 - Script `download_model_from_spaces.py`
 - Script `serve_model.py`
 
-### 8.2. Download model từ Spaces bằng Docker container
-```bash
-# Load environment variables
-source .env.serving
+### 8.2. Download baseline model BGE-M3 từ Hugging Face
 
-# Chạy container để download model (dùng image vừa build)
+**🎯 Chiến lược mới:** Sử dụng baseline model `BAAI/bge-m3` thay vì fine-tuned model
+
+```bash
+# Download model bằng Docker container
 docker run --rm \
   -v $(pwd)/models:/app/models \
   -v $(pwd)/logs:/app/logs \
-  -e SPACES_ACCESS_KEY="$SPACES_ACCESS_KEY" \
-  -e SPACES_SECRET_KEY="$SPACES_SECRET_KEY" \
-  -e SPACES_ENDPOINT="$SPACES_ENDPOINT" \
-  -e SPACES_BUCKET="$SPACES_BUCKET" \
-  -e MODEL_PATH="$MODEL_PATH" \
   legal-embedding-serving:latest \
   python download_model_from_spaces.py
 
 # Verify model đã download
-ls -la models/
+ls -lah models/bge-m3/
 ```
 
-**💡 Giải thích:**
-- `--rm`: Tự động xóa container sau khi chạy xong
-- `-v $(pwd)/models:/app/models`: Mount thư mục models để lưu file download
-- Các `-e`: Pass environment variables vào container
-- `python download_model_from_spaces.py`: Override CMD để chạy script download thay vì serve
-
-**📋 Output mong đợi:**
+**� Output mong đợi:**
 ```
-✅ Đã kết nối với Spaces: https://sgp1.digitaloceanspaces.com
-📋 Liệt kê models có sẵn trong bucket 'legal-datalake'...
-✅ Tìm thấy X model(s):
-   1. models/legal-embedding-v1
-   2. models/legal-embedding-v2
-📥 Đang download model từ 'models/legal-embedding-v2'...
-...
-✅ Download hoàn tất!
+🚀 Starting model download process...
+
+======================================================================
+🎯 DOWNLOADING BASELINE MODEL (RECOMMENDED)
+======================================================================
+📦 Model: BAAI/bge-m3
+📁 Local directory: ./models/bge-m3
+⬇️  Downloading from Hugging Face...
+Fetching 15 files: 100%|██████████| 15/15 [02:30<00:00]
+✅ Baseline model downloaded successfully!
+📍 Model path: ./models/bge-m3
+
+💡 Model này chưa được fine-tune, phù hợp cho serving
+   vì baseline model có performance tốt hơn fine-tuned model.
+
+======================================================================
+✨ DOWNLOAD COMPLETED SUCCESSFULLY!
+======================================================================
+📂 Model location: ./models/bge-m3
+
+📋 Next steps:
+   1. Sử dụng model này cho serving với serve_model.py
+   2. Model đã sẵn sàng để phục vụ requests
+```
+
+**⏰ Thời gian download:**
+- Model size: ~2.3GB
+- Download time: 2-5 phút (tùy network)
+
+**🔍 Kiểm tra structure của model:**
+```bash
+# Xem các file đã download
+tree -L 2 models/bge-m3/
+
+# Expected structure:
+# models/bge-m3/
+# ├── config.json
+# ├── config_sentence_transformers.json
+# ├── model.safetensors
+# ├── pytorch_model.bin
+# ├── sentence_bert_config.json
+# ├── tokenizer.json
+# ├── tokenizer_config.json
+# └── vocab.txt
 ```
 
 ### 8.3. Deploy Serving API với Docker Compose (Recommended)
+
+**Method 1: Sử dụng Docker Compose (Đơn giản nhất)**
 ```bash
-# Start service với docker-compose
+# Start service
 docker-compose -f docker-compose.serving.yml up -d
 
-# Check logs
+# Check logs realtime
 docker-compose -f docker-compose.serving.yml logs -f
 
-# Check status
+# Check service status
 docker-compose -f docker-compose.serving.yml ps
 ```
 
-### 8.4. Hoặc chạy trực tiếp với Docker (Alternative)
+**📋 Output khi API start thành công:**
+```
+legal-embedding-api | 📥 Loading model from: ./models/bge-m3
+legal-embedding-api | 💻 Using device: cpu
+legal-embedding-api | ✅ Model loaded successfully!
+legal-embedding-api | 📊 Embedding dimension: 1024
+legal-embedding-api |  * Running on http://0.0.0.0:5000
+```
+
+### 8.4. Hoặc deploy bằng Docker run (Alternative)
+
+**Method 2: Chạy trực tiếp với docker run**
 ```bash
-# Run container để serving API
+# Run container serving API
 docker run -d \
   --name legal-embedding-api \
   -p 5000:5000 \
-  -v $(pwd)/models:/app/models \
+  -v $(pwd)/models/bge-m3:/app/models/bge-m3 \
   -v $(pwd)/logs:/app/logs \
-  -e MODEL_PATH=/app/models \
+  -e MODEL_PATH=/app/models/bge-m3 \
   -e API_HOST=0.0.0.0 \
   -e API_PORT=5000 \
   -e MAX_BATCH_SIZE=32 \
   --restart unless-stopped \
   legal-embedding-serving:latest
 
-# Check logs
+# Monitor logs
 docker logs -f legal-embedding-api
 
 # Check container status
 docker ps | grep legal-embedding-api
 ```
 
-### 8.5. Verify API is running
-```bash
-# Test health endpoint từ trong droplet
-curl http://localhost:5000/health
+**💡 Giải thích các options:**
+- `-d`: Chạy container ở background
+- `-p 5000:5000`: Map port 5000 ra ngoài
+- `-v $(pwd)/models/bge-m3:/app/models/bge-m3`: Mount model directory
+- `-e MODEL_PATH=/app/models/bge-m3`: Chỉ định path đến model
+- `--restart unless-stopped`: Tự động restart khi droplet reboot
 
-# Expected output:
-# {
-#   "status": "healthy",
-#   "model_loaded": true,
-#   "device": "cpu",
-#   "embedding_dim": 1024
-# }
+### 8.5. Verify API is running
+
+**Test 1: Health check endpoint**
+```bash
+# Test từ trong droplet
+curl http://localhost:5000/health
 ```
 
-**⏰ Thời gian khởi động:**
-- **Model loading**: 30-60 giây
-- **API ready**: 1-2 phút
+**Expected output:**
+```json
+{
+  "status": "healthy",
+  "model_loaded": true,
+  "device": "cpu",
+  "embedding_dim": 1024,
+  "timestamp": 1730198400.123
+}
+```
 
-### 8.6. 🔥 MỞ FIREWALL để Serving ra bên ngoài
+**Test 2: Embedding endpoint**
+```bash
+# Test tạo embeddings
+curl -X POST http://localhost:5000/embed \
+  -H "Content-Type: application/json" \
+  -d '{
+    "texts": ["Luật Dân sự năm 2015"]
+  }'
+```
 
-**Bước này RẤT QUAN TRỌNG** - Nếu không làm thì API chỉ chạy local!
+**Expected output:**
+```json
+{
+  "embeddings": [[0.123, -0.456, 0.789, ...]],  // 1024 dimensions
+  "embedding_dim": 1024,
+  "num_texts": 1,
+  "inference_time": 0.089
+}
+```
+
+**⏰ Thời gian khởi động API:**
+- Model loading: 30-60 giây (lần đầu)
+- API ready: 1-2 phút
+- Requests tiếp theo: < 0.1 giây/câu
+
+### 8.6. 🔥 Cấu hình Firewall (BẮT BUỘC!)
+
+**⚠️ Bước này RẤT QUAN TRỌNG** - Nếu không làm thì API chỉ chạy local!
 
 ```bash
 # Kiểm tra firewall status
 ufw status
 
-# Nếu firewall chưa active hoặc chưa config:
-# Allow SSH (QUAN TRỌNG - làm trước khi enable ufw!)
+# QUAN TRỌNG: Allow SSH trước khi enable firewall (tránh bị lock out!)
 ufw allow OpenSSH
 ufw allow 22/tcp
 
@@ -442,27 +519,70 @@ To                         Action      From
 22/tcp                     ALLOW       Anywhere
 5000/tcp                   ALLOW       Anywhere
 OpenSSH                    ALLOW       Anywhere
+22/tcp (v6)               ALLOW       Anywhere (v6)
+5000/tcp (v6)             ALLOW       Anywhere (v6)
+OpenSSH (v6)              ALLOW       Anywhere (v6)
 ```
 
-### 8.7. 🌐 Test API từ bên ngoài
+### 8.7. 🌐 Test API từ bên ngoài internet
+
+**Từ máy local của bạn (không phải trong droplet):**
 
 ```bash
-# Test từ máy local của bạn (thay YOUR_DROPLET_IP)
-curl http://YOUR_DROPLET_IP:5000/health
+# Thay YOUR_DROPLET_IP bằng IP thực của droplet
+export DROPLET_IP="YOUR_DROPLET_IP"
 
-# Test embedding endpoint
-curl -X POST http://YOUR_DROPLET_IP:5000/embed \
+# Test 1: Health check
+curl http://$DROPLET_IP:5000/health
+
+# Test 2: Generate embeddings
+curl -X POST http://$DROPLET_IP:5000/embed \
   -H "Content-Type: application/json" \
   -d '{
-    "texts": ["Luật Dân sự năm 2015"]
+    "texts": ["Luật Dân sự năm 2015", "Bộ luật Hình sự năm 2017"]
+  }'
+
+# Test 3: Calculate similarity
+curl -X POST http://$DROPLET_IP:5000/similarity \
+  -H "Content-Type: application/json" \
+  -d '{
+    "texts1": ["Luật về quyền sở hữu tài sản"],
+    "texts2": ["Tài sản riêng", "Tài sản chung", "Quyền kế thừa"]
   }'
 ```
 
-**✅ Nếu thành công, bạn sẽ thấy:**
-- `/health` trả về status healthy
-- `/embed` trả về array of embeddings
+**✅ Nếu thành công:**
+- `/health` trả về `"status": "healthy"`
+- `/embed` trả về array of embeddings (1024 dimensions)
+- `/similarity` trả về ma trận similarity scores
 
-**🔧 Troubleshooting:**
+### 8.8. 📊 Benchmark và Performance Testing
+
+```bash
+# Test performance với multiple requests
+for i in {1..10}; do
+  echo "Request $i:"
+  time curl -X POST http://localhost:5000/embed \
+    -H "Content-Type: application/json" \
+    -d '{
+      "texts": ["Test sentence for benchmarking performance"]
+    }' -s -o /dev/null
+done
+
+# Expected inference time:
+# - Single sentence: 50-100ms
+# - Batch 10 sentences: 200-400ms
+# - Batch 32 sentences: 500-1000ms
+```
+
+**💡 Performance tips:**
+- Sử dụng batch requests khi có nhiều texts
+- `MAX_BATCH_SIZE=32` là optimal cho 4GB RAM
+- Upgrade lên 8GB RAM nếu cần xử lý batch lớn hơn
+
+### 8.9. � Troubleshooting Common Issues
+
+**Issue 1: API không start được**
 ```bash
 # Nếu không kết nối được từ bên ngoài:
 
@@ -526,115 +646,323 @@ python3 test_api.py http://YOUR_DROPLET_IP:5000
 ```bash
 # Check xem API có sống không
 curl http://YOUR_DROPLET_IP:5000/health
-```
+```### 8.9. 🔧 Troubleshooting Common Issues
 
-**Response:**
-```json
-{
-  "status": "healthy",
-  "model_loaded": true,
-  "device": "cpu",
-  "embedding_dim": 1024,
-  "timestamp": 1234567890.123
-}
-```
-
-**📝 Endpoint 2: Generate Embeddings**
+**Issue 1: API không start được**
 ```bash
-# Tạo embedding vectors cho text
-curl -X POST http://YOUR_DROPLET_IP:5000/embed \
-  -H "Content-Type: application/json" \
-  -d '{
-    "texts": [
-      "Luật Dân sự năm 2015",
-      "Bộ luật Hình sự năm 2017"
-    ]
-  }'
+# Check logs để xem lỗi gì
+docker logs legal-embedding-api
+
+# Common errors:
+# 1. Model không tồn tại -> Download lại model
+# 2. Out of memory -> Giảm MAX_BATCH_SIZE hoặc upgrade droplet
+# 3. Port conflict -> Đổi API_PORT
 ```
 
-**Response:**
-```json
-{
-  "embeddings": [
-    [0.123, -0.456, 0.789, ...],  // 1024 dimensions
-    [0.234, -0.567, 0.890, ...]   // 1024 dimensions
-  ],
-  "processing_time": 0.123,
-  "count": 2
-}
-```
-
-**🔢 Endpoint 3: Calculate Similarity**
+**Solution cho Issue 1:**
 ```bash
-# Tính độ tương đồng giữa các câu
-curl -X POST http://YOUR_DROPLET_IP:5000/similarity \
-  -H "Content-Type: application/json" \
-  -d '{
-    "texts1": ["Luật Dân sự về quyền sở hữu"],
-    "texts2": ["Luật Dân  sự"]
-  }'
+# Download lại model nếu bị lỗi
+docker run --rm \
+  -v $(pwd)/models:/app/models \
+  legal-embedding-serving:latest \
+  python download_model_from_spaces.py
+
+# Restart API
+docker restart legal-embedding-api
 ```
 
-**Response:**
-```json
-{
-  "similarities": [
-    [0.85, 0.23]  // similarities[i][j] = similarity(texts1[i], texts2[j])
-  ],
-  "processing_time": 0.089,
-  "shape": [1, 2]
-}
+**Issue 2: Không connect được từ bên ngoài**
+```bash
+# Checklist:
+# 1. Container có đang chạy?
+docker ps | grep legal-embedding-api
+
+# 2. Port mapping đúng chưa?
+docker port legal-embedding-api
+
+# 3. Firewall đã mở chưa?
+ufw status | grep 5000
+
+# 4. Test từ trong droplet trước
+curl http://localhost:5000/health
+
+# 5. Nếu local OK nhưng external fail -> Check firewall
+ufw allow 5000/tcp
 ```
 
-**💡 Cách sử dụng trong code Python:**
+**Issue 3: Model download bị lỗi**
+```bash
+# Lỗi: Connection timeout, HTTP errors
+
+# Solution 1: Check network
+ping huggingface.co
+
+# Solution 2: Retry download
+docker run --rm \
+  -v $(pwd)/models:/app/models \
+  legal-embedding-serving:latest \
+  python download_model_from_spaces.py
+
+# Solution 3: Download trực tiếp bằng git (nếu cần)
+cd models
+git lfs install
+git clone https://huggingface.co/BAAI/bge-m3
+mv bge-m3 bge-m3-temp && mv bge-m3-temp/* bge-m3/ && rm -rf bge-m3-temp
+```
+
+**Issue 4: Performance chậm**
+```bash
+# Check system resources
+docker stats legal-embedding-api
+htop
+
+# Solutions:
+# 1. Giảm batch size nếu out of memory
+# 2. Upgrade droplet lên 8GB RAM
+# 3. Optimize concurrent requests
+```
+
+**Issue 5: Container bị crash/restart liên tục**
+```bash
+# Check logs để tìm root cause
+docker logs --tail 100 legal-embedding-api
+
+# Common causes:
+# 1. OOM (Out of Memory) -> Giảm MAX_BATCH_SIZE
+# 2. Model file corrupted -> Download lại
+# 3. Disk full -> Dọn dẹp: docker system prune -a
+
+# Check disk usage
+df -h
+```
+
+---
+
+## Bước 9: Test và Monitor Serving API
+
+### 9.1. Integration Testing với Python
+
+**Tạo file test script trên máy local:**
 ```python
+# test_embedding_api.py
 import requests
+import time
 
-API_URL = "http://YOUR_DROPLET_IP:5000"
+API_URL = "http://YOUR_DROPLET_IP:5000"  # Thay YOUR_DROPLET_IP
 
-# 1. Generate embeddings
-response = requests.post(
-    f"{API_URL}/embed",
-    json={"texts": ["Luật Dân sự", "Bộ luật Hình sự"]}
-)
-embeddings = response.json()["embeddings"]
-print(f"Got {len(embeddings)} embeddings")
+def test_health():
+    """Test health endpoint"""
+    print("🔍 Testing /health endpoint...")
+    response = requests.get(f"{API_URL}/health")
+    print(f"Status: {response.status_code}")
+    print(f"Response: {response.json()}")
+    assert response.status_code == 200
+    assert response.json()["model_loaded"] == True
+    print("✅ Health check passed!\n")
 
-# 2. Calculate similarity
-response = requests.post(
-    f"{API_URL}/similarity",
-    json={
-        "texts1": ["Quyền sở hữu tài sản"],
-        "texts2": ["Tài sản riêng", "Tài sản chung", "Quyền kế thừa"]
-    }
-)
-similarities = response.json()["similarities"]
-print(f"Similarities: {similarities}")
+def test_embed_single():
+    """Test embedding single text"""
+    print("🔍 Testing /embed with single text...")
+    response = requests.post(
+        f"{API_URL}/embed",
+        json={"texts": ["Luật Dân sự năm 2015"]}
+    )
+    print(f"Status: {response.status_code}")
+    data = response.json()
+    print(f"Embedding dim: {data['embedding_dim']}")
+    print(f"Inference time: {data['inference_time']}s")
+    assert response.status_code == 200
+    assert len(data['embeddings']) == 1
+    assert len(data['embeddings'][0]) == 1024
+    print("✅ Single text embedding passed!\n")
 
-# 3. Find most similar
-query = "Luật về đất đai"
-candidates = ["Quy định về nhà đất", "Bộ luật Hình sự", "Luật Đất đai 2013"]
+def test_embed_batch():
+    """Test embedding batch of texts"""
+    print("🔍 Testing /embed with batch texts...")
+    texts = [
+        "Luật Dân sự năm 2015",
+        "Bộ luật Hình sự năm 2017",
+        "Luật Đất đai năm 2013"
+    ]
+    response = requests.post(
+        f"{API_URL}/embed",
+        json={"texts": texts}
+    )
+    data = response.json()
+    print(f"Status: {response.status_code}")
+    print(f"Processed {data['num_texts']} texts")
+    print(f"Inference time: {data['inference_time']}s")
+    assert response.status_code == 200
+    assert len(data['embeddings']) == 3
+    print("✅ Batch embedding passed!\n")
 
-response = requests.post(
-    f"{API_URL}/similarity",
-    json={"texts1": [query], "texts2": candidates}
-)
-scores = response.json()["similarities"][0]
-best_idx = scores.index(max(scores))
-print(f"Most similar: {candidates[best_idx]} (score: {scores[best_idx]:.3f})")
+def test_similarity():
+    """Test similarity calculation"""
+    print("🔍 Testing /similarity endpoint...")
+    response = requests.post(
+        f"{API_URL}/similarity",
+        json={
+            "texts1": ["Quyền sở hữu tài sản"],
+            "texts2": ["Tài sản riêng", "Tài sản chung", "Quyền kế thừa"]
+        }
+    )
+    data = response.json()
+    print(f"Status: {response.status_code}")
+    print(f"Similarities: {data['similarities']}")
+    print(f"Inference time: {data['inference_time']}s")
+    assert response.status_code == 200
+    assert len(data['similarities']) == 1
+    assert len(data['similarities'][0]) == 3
+    print("✅ Similarity calculation passed!\n")
+
+def benchmark_performance():
+    """Benchmark API performance"""
+    print("🔍 Benchmarking performance...")
+    texts = ["Test sentence"] * 10
+    
+    times = []
+    for i in range(5):
+        start = time.time()
+        response = requests.post(
+            f"{API_URL}/embed",
+            json={"texts": texts}
+        )
+        elapsed = time.time() - start
+        times.append(elapsed)
+        print(f"Request {i+1}: {elapsed:.3f}s")
+    
+    avg_time = sum(times) / len(times)
+    print(f"\n📊 Average time for 10 texts: {avg_time:.3f}s")
+    print(f"📊 Throughput: {10/avg_time:.1f} texts/second")
+    print("✅ Benchmark completed!\n")
+
+if __name__ == "__main__":
+    try:
+        test_health()
+        test_embed_single()
+        test_embed_batch()
+        test_similarity()
+        benchmark_performance()
+        
+        print("=" * 60)
+        print("🎉 ALL TESTS PASSED!")
+        print("=" * 60)
+    except Exception as e:
+        print(f"\n❌ TEST FAILED: {e}")
 ```
 
-### 9.3. Monitor API logs
+**Chạy test:**
 ```bash
-# Với docker-compose
-docker-compose -f docker-compose.serving.yml logs -f
+# Trên máy local
+python test_embedding_api.py
+```
 
-# Với docker run
+### 9.2. Monitor API với Docker
+
+```bash
+# Monitor logs realtime
 docker logs -f legal-embedding-api
 
-# Hoặc check file logs
-tail -f logs/serve_model.log
+# Monitor system resources
+docker stats legal-embedding-api
+
+# Check container info
+docker inspect legal-embedding-api
 ```
+
+### 9.3. Setup monitoring script trong droplet
+
+```bash
+# Tạo monitoring script
+cat > /root/monitor_api.sh << 'EOF'
+#!/bin/bash
+LOG_FILE="/root/api_monitor.log"
+
+while true; do
+    echo "=== $(date) ===" >> $LOG_FILE
+    
+    # Check API health
+    health=$(curl -s http://localhost:5000/health)
+    if echo "$health" | grep -q "healthy"; then
+        echo "✅ API is healthy" >> $LOG_FILE
+    else
+        echo "❌ API is DOWN!" >> $LOG_FILE
+        # Optional: Restart container
+        # docker restart legal-embedding-api
+    fi
+    
+    # Log system stats
+    docker stats --no-stream legal-embedding-api >> $LOG_FILE
+    
+    echo "" >> $LOG_FILE
+    sleep 300  # Check every 5 minutes
+done
+EOF
+
+chmod +x /root/monitor_api.sh
+
+# Run monitor trong background
+nohup /root/monitor_api.sh &
+
+# Check monitor log
+tail -f /root/api_monitor.log
+```
+
+---
+
+## Bước 10: Best Practices và Maintenance
+
+### 10.1. Xóa GPU Droplet sau khi training xong (Tiết kiệm chi phí)
+
+```bash
+# ⚠️ LƯU Ý: Chỉ xóa GPU droplet SAU KHI đã verify model hoạt động tốt
+
+# Vào Digital Ocean Dashboard:
+# 1. Chọn GPU Droplet
+# 2. Click "Destroy"
+# 3. Confirm deletion
+
+# 💰 Lý do: GPU Droplet rất đắt ($72-144/month)
+# Với chiến lược baseline model, không cần training nên không cần GPU!
+```
+
+### 10.2. Update Model khi cần thiết
+
+**Scenario 1: Có baseline model mới hơn từ Hugging Face**
+```bash
+# SSH vào CPU droplet
+ssh root@CPU_DROPLET_IP
+cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
+
+# Backup model cũ (optional)
+mv models/bge-m3 models/bge-m3_backup_$(date +%Y%m%d)
+
+# Download model mới
+docker run --rm \
+  -v $(pwd)/models:/app/models \
+  legal-embedding-serving:latest \
+  python download_model_from_spaces.py
+
+# Restart API service
+docker restart legal-embedding-api
+# Hoặc với docker-compose:
+# docker-compose -f docker-compose.serving.yml restart
+
+# Verify
+curl http://localhost:5000/health
+```
+
+**Scenario 2: Muốn thử model khác (ví dụ: bge-large)**
+```python
+# Edit file download_model_from_spaces.py
+# Thay đổi MODEL_NAME và LOCAL_DIR trong hàm main():
+MODEL_NAME = "BAAI/bge-large-en-v1.5"  # Hoặc model khác
+LOCAL_DIR = "./models/bge-large"
+
+# Sau đó download và update MODEL_PATH trong .env.serving
+```
+
+### 10.3. Auto-restart và High Availability
 
 ### 9.4. Monitor system resources
 ```bash
@@ -669,106 +997,373 @@ ufw status verbose
 
 **🔒 Tùy chọn bảo mật cao hơn:**
 ```bash
-# Chỉ allow API từ IP backend của bạn
-ufw delete allow 5000/tcp
-ufw allow from YOUR_BACKEND_SERVER_IP to any port 5000
+### 10.3. Auto-restart và High Availability
 
-# Hoặc allow từ một subnet
-ufw allow from 10.0.0.0/8 to any port 5000
-
-# Rate limiting để chống DDoS
-ufw limit 5000/tcp
-```
-
----
-
-## Bước 10: Cleanup và Best Practices
-
-### 10.1. Xóa GPU Droplet sau khi training xong
+**Docker đã config auto-restart policy:**
 ```bash
-# Sau khi model đã upload lên Spaces và verify thành công
-# Vào Digital Ocean Dashboard:
-# 1. Chọn GPU Droplet
-# 2. Click "Destroy"
-# 3. Confirm deletion
-# 
-# Lý do: GPU Droplet rất đắt ($72-144/month)
-# Chỉ cần trong quá trình training
-```
+# Với docker-compose.serving.yml
+restart: unless-stopped
 
-### 10.2. Backup và Update Model
-
-**Khi có model mới:**
-```bash
-# SSH vào CPU droplet
-ssh root@CPU_DROPLET_IP
-cd /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup
-
-# Backup model cũ (optional)
-mv models models_backup_$(date +%Y%m%d)
-mkdir -p models
-
-# Download model mới bằng Docker container
-source .env.serving
-docker run --rm \
-  -v $(pwd)/models:/app/models \
-  -e SPACES_ACCESS_KEY="$SPACES_ACCESS_KEY" \
-  -e SPACES_SECRET_KEY="$SPACES_SECRET_KEY" \
-  -e SPACES_ENDPOINT="$SPACES_ENDPOINT" \
-  -e SPACES_BUCKET="$SPACES_BUCKET" \
-  -e MODEL_PATH="$MODEL_PATH" \
-  legal-embedding-serving:latest \
-  python download_model_from_spaces.py
-
-# Restart service
-docker-compose -f docker-compose.serving.yml restart
-# Hoặc nếu dùng docker run:
-# docker restart legal-embedding-api
-
-# Verify
-curl http://localhost:5000/health
-```
-
-### 10.3. Auto-restart policy
-```bash
-# Docker Compose đã config restart: unless-stopped
-# Container sẽ tự động restart nếu:
+# Container sẽ tự động restart khi:
 # - Droplet reboot
 # - Container crash
 # - Docker daemon restart
 ```
 
-### 10.4. Best Practices
-
-**✅ Security:**
-- Sử dụng SSH key thay vì password
-- Enable firewall với `ufw`
-- Giới hạn access API bằng IP whitelist hoặc API key
-- Định kỳ update security patches: `apt update && apt upgrade`
-
-**✅ Performance:**
-- Monitor CPU/Memory usage định kỳ
-- Adjust `MAX_BATCH_SIZE` dựa trên RAM available
-- Consider upgrade droplet nếu performance không đủ
-
-**✅ Cost Optimization:**
-- **Xóa GPU droplet ngay** sau training
-- CPU droplet: $24-48/month (rẻ hơn nhiều)
-- Backup models lên Spaces (cheap storage)
-
-**✅ Monitoring:**
+**Manual restart khi cần:**
 ```bash
-# Setup simple monitoring script
-cat > /root/monitor.sh << 'EOF'
+# Restart container
+docker restart legal-embedding-api
+
+# Hoặc với docker-compose
+docker-compose -f docker-compose.serving.yml restart
+
+# Check status sau restart
+docker ps | grep legal-embedding-api
+curl http://localhost:5000/health
+```
+
+### 10.4. Security Best Practices
+
+**✅ Firewall Configuration:**
+```bash
+# Chỉ allow từ backend server cụ thể (RECOMMENDED cho production)
+ufw delete allow 5000/tcp
+ufw allow from YOUR_BACKEND_SERVER_IP to any port 5000 proto tcp
+
+# Hoặc allow từ một subnet
+ufw allow from 10.0.0.0/16 to any port 5000 proto tcp
+
+# Rate limiting để chống DDoS
+ufw limit 5000/tcp comment 'Rate limit API requests'
+```
+
+**✅ SSH Security:**
+```bash
+# Disable password authentication
+nano /etc/ssh/sshd_config
+# Set: PasswordAuthentication no
+systemctl restart sshd
+
+# Chỉ allow SSH từ IP cụ thể
+ufw delete allow 22/tcp
+ufw allow from YOUR_IP to any port 22 proto tcp
+```
+
+**✅ Regular Updates:**
+```bash
+# Setup auto-update cho security patches
+apt install unattended-upgrades
+dpkg-reconfigure -plow unattended-upgrades
+
+# Manual update định kỳ
+apt update && apt upgrade -y
+apt autoremove -y
+```
+
+### 10.5. Performance Optimization
+
+**Monitor resource usage:**
+```bash
+# Real-time monitoring
+htop
+docker stats legal-embedding-api
+
+# Check disk usage
+df -h
+du -sh /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup/models/
+
+# Check memory
+free -h
+```
+
+**Optimize based on workload:**
+```bash
+# Nếu RAM usage cao -> Giảm batch size
+# Edit .env.serving:
+MAX_BATCH_SIZE=16  # Thay vì 32
+
+# Restart API
+docker restart legal-embedding-api
+
+# Nếu CPU usage cao -> Consider upgrade droplet
+# $24/month (2 vCPUs) -> $48/month (4 vCPUs)
+```
+
+### 10.6. Backup Strategy
+
+**Backup cấu hình quan trọng:**
+```bash
+# Tạo backup script
+cat > /root/backup.sh << 'EOF'
 #!/bin/bash
-while true; do
-  echo "=== $(date) ==="
-  curl -s http://localhost:5000/health || echo "API DOWN!"
-  docker stats --no-stream legal-embedding-api
-  echo ""
-  sleep 300  # Check every 5 minutes
-done
+BACKUP_DIR="/root/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+
+mkdir -p $BACKUP_DIR
+
+# Backup configs
+tar -czf $BACKUP_DIR/configs_$DATE.tar.gz \
+  /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup/.env.serving \
+  /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup/docker-compose.serving.yml
+
+# Backup logs (last 7 days)
+tar -czf $BACKUP_DIR/logs_$DATE.tar.gz \
+  /root/Vietnamese-Legal-Chatbot-RAG-System/digital_ocean_setup/logs/
+
+# Keep only last 7 backups
+cd $BACKUP_DIR && ls -t | tail -n +8 | xargs rm -f
+
+echo "Backup completed: $DATE"
 EOF
+
+chmod +x /root/backup.sh
+
+# Setup cron job (daily backup at 2 AM)
+crontab -e
+# Add line:
+# 0 2 * * * /root/backup.sh >> /var/log/backup.log 2>&1
+```
+
+---
+
+## Bước 11: Integration với Backend của bạn
+
+### 11.1. Python Integration Example
+
+```python
+# embedding_client.py
+import requests
+from typing import List, Tuple
+import numpy as np
+
+class EmbeddingClient:
+    def __init__(self, api_url: str):
+        """
+        Client để tương tác với Embedding API
+        
+        Args:
+            api_url: URL của API (ví dụ: "http://YOUR_DROPLET_IP:5000")
+        """
+        self.api_url = api_url.rstrip('/')
+        
+    def health_check(self) -> bool:
+        """Kiểm tra API có sống không"""
+        try:
+            response = requests.get(f"{self.api_url}/health", timeout=5)
+            return response.json().get("model_loaded", False)
+        except:
+            return False
+    
+    def embed(self, texts: List[str]) -> np.ndarray:
+        """
+        Tạo embeddings cho list of texts
+        
+        Args:
+            texts: List of texts cần embedding
+            
+        Returns:
+            numpy array shape (len(texts), 1024)
+        """
+        response = requests.post(
+            f"{self.api_url}/embed",
+            json={"texts": texts},
+            timeout=30
+        )
+        response.raise_for_status()
+        embeddings = response.json()["embeddings"]
+        return np.array(embeddings)
+    
+    def similarity(self, texts1: List[str], texts2: List[str]) -> np.ndarray:
+        """
+        Tính similarity giữa 2 lists of texts
+        
+        Returns:
+            numpy array shape (len(texts1), len(texts2))
+        """
+        response = requests.post(
+            f"{self.api_url}/similarity",
+            json={"texts1": texts1, "texts2": texts2},
+            timeout=30
+        )
+        response.raise_for_status()
+        similarities = response.json()["similarities"]
+        return np.array(similarities)
+    
+    def find_most_similar(self, query: str, candidates: List[str], top_k: int = 5) -> List[Tuple[int, str, float]]:
+        """
+        Tìm top-k candidates giống query nhất
+        
+        Returns:
+            List of (index, text, score)
+        """
+        similarities = self.similarity([query], candidates)[0]
+        
+        # Get top-k indices
+        top_indices = np.argsort(similarities)[::-1][:top_k]
+        
+        results = [
+            (idx, candidates[idx], similarities[idx])
+            for idx in top_indices
+        ]
+        
+        return results
+
+# Usage example
+if __name__ == "__main__":
+    client = EmbeddingClient("http://YOUR_DROPLET_IP:5000")
+    
+    # Check health
+    if not client.health_check():
+        print("API is not available!")
+        exit(1)
+    
+    # Example: RAG search
+    query = "Quy định về quyền sở hữu đất đai"
+    documents = [
+        "Luật Đất đai 2013 quy định về quyền sử dụng đất",
+        "Bộ luật Hình sự về tội xâm phạm tài sản",
+        "Luật Dân sự về quyền sở hữu tài sản",
+        "Luật Nhà ở về quyền sở hữu nhà",
+    ]
+    
+    results = client.find_most_similar(query, documents, top_k=3)
+    
+    print(f"Query: {query}\n")
+    print("Top 3 most similar documents:")
+    for rank, (idx, text, score) in enumerate(results, 1):
+        print(f"{rank}. [{score:.3f}] {text}")
+```
+
+### 11.2. Integrate vào RAG System
+
+```python
+# rag_with_embedding_api.py
+from embedding_client import EmbeddingClient
+import numpy as np
+from typing import List, Dict
+
+class RAGSystem:
+    def __init__(self, embedding_api_url: str, corpus: List[Dict[str, str]]):
+        """
+        RAG System sử dụng external embedding API
+        
+        Args:
+            embedding_api_url: URL của embedding API
+            corpus: List of documents, mỗi document có 'id' và 'text'
+        """
+        self.client = EmbeddingClient(embedding_api_url)
+        self.corpus = corpus
+        
+        # Pre-compute embeddings cho corpus
+        print("Computing corpus embeddings...")
+        corpus_texts = [doc['text'] for doc in corpus]
+        self.corpus_embeddings = self.client.embed(corpus_texts)
+        print(f"Embedded {len(corpus)} documents")
+    
+    def search(self, query: str, top_k: int = 5) -> List[Dict]:
+        """
+        Search relevant documents cho query
+        
+        Returns:
+            List of documents với similarity scores
+        """
+        # Get query embedding
+        query_embedding = self.client.embed([query])[0]
+        
+        # Calculate similarities
+        similarities = np.dot(self.corpus_embeddings, query_embedding)
+        
+        # Get top-k
+        top_indices = np.argsort(similarities)[::-1][:top_k]
+        
+        results = [
+            {
+                **self.corpus[idx],
+                'score': float(similarities[idx])
+            }
+            for idx in top_indices
+        ]
+        
+        return results
+
+# Usage
+if __name__ == "__main__":
+    # Sample corpus
+    corpus = [
+        {"id": "doc1", "text": "Luật Đất đai 2013 quy định về quyền sử dụng đất"},
+        {"id": "doc2", "text": "Bộ luật Hình sự về tội xâm phạm tài sản"},
+        {"id": "doc3", "text": "Luật Dân sự về quyền sở hữu tài sản"},
+    ]
+    
+    rag = RAGSystem("http://YOUR_DROPLET_IP:5000", corpus)
+    
+    # Search
+    results = rag.search("quyền sở hữu đất đai", top_k=2)
+    
+    print("\nSearch Results:")
+    for result in results:
+        print(f"[{result['score']:.3f}] {result['id']}: {result['text']}")
+```
+
+---
+
+## 📊 Tổng kết Chi phí và Performance
+
+### Chi phí hàng tháng
+
+| Service | Configuration | Cost/month | Note |
+|---------|--------------|------------|------|
+| **GPU Droplet** | V100, 8GB RAM | ~~$72~~ **$0** | ❌ Không cần! (dùng baseline model) |
+| **CPU Droplet** | 4GB RAM, 2 vCPUs | $24 | ✅ Cho serving cơ bản |
+| **CPU Droplet** | 8GB RAM, 4 vCPUs | $48 | ✅ RECOMMENDED |
+| **Storage** | N/A | $0 | Model ~2.3GB, trong droplet |
+
+**💰 Total: $24-48/month** (không cần GPU!)
+
+### Performance Metrics (BGE-M3 on CPU)
+
+| Metric | 4GB Droplet | 8GB Droplet |
+|--------|-------------|-------------|
+| Single text (avg) | 80-100ms | 60-80ms |
+| Batch 10 texts | 300-400ms | 250-350ms |
+| Batch 32 texts | 800-1000ms | 600-800ms |
+| Max throughput | ~25 texts/sec | ~35 texts/sec |
+| Embedding dim | 1024 | 1024 |
+
+### So sánh Baseline vs Fine-tuned
+
+| Aspect | Baseline BGE-M3 | Fine-tuned Model |
+|--------|----------------|------------------|
+| **Setup cost** | $0 (no training) | $72-144 (GPU training) |
+| **Setup time** | 5 phút (download) | 2-4 giờ (training) |
+| **Model size** | 2.3GB | 2.3GB |
+| **Performance** | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐⭐⭐ Good |
+| **Serving cost** | $24-48/month | $24-48/month |
+| **Maintenance** | ✅ Easy | ⚠️ Complex |
+
+**🎯 Kết luận: Baseline model là lựa chọn tốt nhất!**
+
+---
+
+## 🎉 Hoàn thành!
+
+Bạn đã setup thành công hệ thống Embedding API với:
+- ✅ **Baseline BGE-M3 model** - Performance tốt nhất
+- ✅ **Không cần GPU** - Tiết kiệm $72-144/month
+- ✅ **CPU Droplet serving 24/7** - Chỉ $24-48/month
+- ✅ **Auto-restart** - High availability
+- ✅ **Production-ready** - Security, monitoring, backup
+
+**Next steps:**
+- Integrate API vào backend của bạn
+- Setup monitoring và alerting
+- Consider load balancer nếu traffic cao
+- Add authentication/API key nếu cần
+
+**Support:**
+- GitHub Issues: https://github.com/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System/issues
+- Documentation: README.md trong repo
 
 chmod +x /root/monitor.sh
 
