@@ -190,7 +190,7 @@ Vietnamese-Legal-Chatbot-RAG-System/
 
 ### 🏗️ Infrastructure
 - **Docker**: Containerization
-- **Docker Compose**: Multi-container orchestration  
+- **Docker Compose**: Multi-container orchestration
 - **Nginx**: Load balancing and reverse proxy
 - **AWS S3/MinIO**: Object storage
 - **Digital Ocean**: Cloud hosting platform
@@ -245,7 +245,7 @@ CHROMA_HOST=chromadb
 CHROMA_PORT=8000
 ```
 
-#### Database Configuration  
+#### Database Configuration
 ```bash
 # Edit database/.env
 nano database/.env
@@ -325,7 +325,7 @@ curl -X POST http://localhost:8000/data/import \
 ### 🌐 5. Access Applications
 
 - **🖥️ Web Chat Interface**: http://localhost:8501
-- **📚 API Documentation**: http://localhost:8000/docs  
+- **📚 API Documentation**: http://localhost:8000/docs
 - **📊 API Health Check**: http://localhost:8000/health
 - **🗄️ ChromaDB Dashboard**: http://localhost:8001
 - **💾 Database Admin** (pgAdmin): http://localhost:5050
@@ -420,7 +420,7 @@ python scripts/validate_data.py
 ```
 
 ### 📈 Current Data Statistics
-- **📚 Legal Corpus**: 1.9M+ Vietnamese legal documents  
+- **📚 Legal Corpus**: 1.9M+ Vietnamese legal documents
 - **💬 Training Data**: 225K+ high-quality Q&A pairs
 - **🎯 Fine-tuning Sets**: 3 specialized datasets
 - **📊 Coverage**: Complete coverage of major legal domains
@@ -459,7 +459,7 @@ docker stats --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}"
 
 ### ⚡ Expected Performance
 - **💬 Chat Response**: 2-5 seconds for complete RAG pipeline
-- **🔍 Vector Search**: <1 second for semantic queries  
+- **🔍 Vector Search**: <1 second for semantic queries
 - **📊 Document Processing**: ~1.9M documents in ~30 minutes
 - **👥 Concurrent Users**: 50+ simultaneous chat sessions
 - **🚀 Throughput**: 100+ requests/minute
@@ -594,7 +594,7 @@ cd backend && python scripts/update_openapi.py
 # Database connection failed
 docker exec -it postgres psql -U legal_user -d legal_chatbot
 
-# Redis connection failed  
+# Redis connection failed
 docker exec -it redis redis-cli ping
 
 # ChromaDB not accessible
@@ -661,7 +661,7 @@ docker-compose -f docker-compose.debug.yml up
 
 ### 📊 Dashboard Access
 - **System Metrics**: http://localhost:3000 (Grafana)
-- **Application Logs**: http://localhost:5601 (Kibana)  
+- **Application Logs**: http://localhost:5601 (Kibana)
 - **Database Monitoring**: http://localhost:5050 (pgAdmin)
 
 ## 🙏 Acknowledgments
@@ -704,7 +704,7 @@ This project is distributed under **MIT License** - see the [LICENSE](LICENSE) f
 
 ### 🔒 Usage Terms
 - ✅ Commercial use allowed
-- ✅ Modification and distribution allowed  
+- ✅ Modification and distribution allowed
 - ✅ Private use encouraged
 - ❗ No warranty provided
 - ❗ Legal advice disclaimer applies
@@ -713,7 +713,7 @@ This project is distributed under **MIT License** - see the [LICENSE](LICENSE) f
 
 ## ⚠️ Disclaimer
 
-**Important Statement**: This system is designed for **research, educational, and reference support purposes**. 
+**Important Statement**: This system is designed for **research, educational, and reference support purposes**.
 
 🚨 **Legal Notice**:
 - AI results cannot replace consultation from qualified lawyers

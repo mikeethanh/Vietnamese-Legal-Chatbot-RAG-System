@@ -4,7 +4,7 @@
 USE demo_bot;
 
 -- Step 1: Rename column and update datatype
-ALTER TABLE document 
+ALTER TABLE document
 CHANGE COLUMN title question VARCHAR(2000) NOT NULL DEFAULT '';
 
 -- Verify the change

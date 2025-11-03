@@ -34,7 +34,7 @@
 1. Click **"Create"** → **"Droplets"** (lần 2)
 2. **Operating System**: Ubuntu 22.04 (LTS) x64
 3. **Plan**: Basic - Regular with SSD
-4. **Size**: 
+4. **Size**:
    - **$24/month**: 4GB RAM, 2 vCPUs, 80GB SSD ← Cho serving cơ bản
    - **$48/month**: 8GB RAM, 4 vCPUs, 160GB SSD ← Khuyến nghị cho performance tốt
 5. **Datacenter**: Singapore (SGP1) (cùng region)
@@ -143,7 +143,7 @@ source .env
 
 # Verify environment variables
 echo "🔍 Checking environment variables..."
-echo "SPACES_ACCESS_KEY: ${SPACES_ACCESS_KEY:0:10}..." 
+echo "SPACES_ACCESS_KEY: ${SPACES_ACCESS_KEY:0:10}..."
 echo "SPACES_SECRET_KEY: ${SPACES_SECRET_KEY:0:10}..."
 echo "SPACES_BUCKET: $SPACES_BUCKET"
 echo "BASE_MODEL: $BASE_MODEL"
@@ -819,7 +819,7 @@ def benchmark_performance():
     """Benchmark API performance"""
     print("🔍 Benchmarking performance...")
     texts = ["Test sentence"] * 10
-    
+
     times = []
     for i in range(5):
         start = time.time()
@@ -830,7 +830,7 @@ def benchmark_performance():
         elapsed = time.time() - start
         times.append(elapsed)
         print(f"Request {i+1}: {elapsed:.3f}s")
-    
+
     avg_time = sum(times) / len(times)
     print(f"\n📊 Average time for 10 texts: {avg_time:.3f}s")
     print(f"📊 Throughput: {10/avg_time:.1f} texts/second")
@@ -843,7 +843,7 @@ if __name__ == "__main__":
         test_embed_batch()
         test_similarity()
         benchmark_performance()
-        
+
         print("=" * 60)
         print("🎉 ALL TESTS PASSED!")
         print("=" * 60)
@@ -880,7 +880,7 @@ LOG_FILE="/root/api_monitor.log"
 
 while true; do
     echo "=== $(date) ===" >> $LOG_FILE
-    
+
     # Check API health
     health=$(curl -s http://localhost:5000/health)
     if echo "$health" | grep -q "healthy"; then
@@ -890,10 +890,10 @@ while true; do
         # Optional: Restart container
         # docker restart legal-embedding-api
     fi
-    
+
     # Log system stats
     docker stats --no-stream legal-embedding-api >> $LOG_FILE
-    
+
     echo "" >> $LOG_FILE
     sleep 300  # Check every 5 minutes
 done
@@ -1141,12 +1141,12 @@ class EmbeddingClient:
     def __init__(self, api_url: str):
         """
         Client để tương tác với Embedding API
-        
+
         Args:
             api_url: URL của API (ví dụ: "http://YOUR_DROPLET_IP:5000")
         """
         self.api_url = api_url.rstrip('/')
-        
+
     def health_check(self) -> bool:
         """Kiểm tra API có sống không"""
         try:
@@ -1154,14 +1154,14 @@ class EmbeddingClient:
             return response.json().get("model_loaded", False)
         except:
             return False
-    
+
     def embed(self, texts: List[str]) -> np.ndarray:
         """
         Tạo embeddings cho list of texts
-        
+
         Args:
             texts: List of texts cần embedding
-            
+
         Returns:
             numpy array shape (len(texts), 1024)
         """
@@ -1173,11 +1173,11 @@ class EmbeddingClient:
         response.raise_for_status()
         embeddings = response.json()["embeddings"]
         return np.array(embeddings)
-    
+
     def similarity(self, texts1: List[str], texts2: List[str]) -> np.ndarray:
         """
         Tính similarity giữa 2 lists of texts
-        
+
         Returns:
             numpy array shape (len(texts1), len(texts2))
         """
@@ -1189,35 +1189,35 @@ class EmbeddingClient:
         response.raise_for_status()
         similarities = response.json()["similarities"]
         return np.array(similarities)
-    
+
     def find_most_similar(self, query: str, candidates: List[str], top_k: int = 5) -> List[Tuple[int, str, float]]:
         """
         Tìm top-k candidates giống query nhất
-        
+
         Returns:
             List of (index, text, score)
         """
         similarities = self.similarity([query], candidates)[0]
-        
+
         # Get top-k indices
         top_indices = np.argsort(similarities)[::-1][:top_k]
-        
+
         results = [
             (idx, candidates[idx], similarities[idx])
             for idx in top_indices
         ]
-        
+
         return results
 
 # Usage example
 if __name__ == "__main__":
     client = EmbeddingClient("http://YOUR_DROPLET_IP:5000")
-    
+
     # Check health
     if not client.health_check():
         print("API is not available!")
         exit(1)
-    
+
     # Example: RAG search
     query = "Quy định về quyền sở hữu đất đai"
     documents = [
@@ -1226,9 +1226,9 @@ if __name__ == "__main__":
         "Luật Dân sự về quyền sở hữu tài sản",
         "Luật Nhà ở về quyền sở hữu nhà",
     ]
-    
+
     results = client.find_most_similar(query, documents, top_k=3)
-    
+
     print(f"Query: {query}\n")
     print("Top 3 most similar documents:")
     for rank, (idx, text, score) in enumerate(results, 1):
@@ -1247,36 +1247,36 @@ class RAGSystem:
     def __init__(self, embedding_api_url: str, corpus: List[Dict[str, str]]):
         """
         RAG System sử dụng external embedding API
-        
+
         Args:
             embedding_api_url: URL của embedding API
             corpus: List of documents, mỗi document có 'id' và 'text'
         """
         self.client = EmbeddingClient(embedding_api_url)
         self.corpus = corpus
-        
+
         # Pre-compute embeddings cho corpus
         print("Computing corpus embeddings...")
         corpus_texts = [doc['text'] for doc in corpus]
         self.corpus_embeddings = self.client.embed(corpus_texts)
         print(f"Embedded {len(corpus)} documents")
-    
+
     def search(self, query: str, top_k: int = 5) -> List[Dict]:
         """
         Search relevant documents cho query
-        
+
         Returns:
             List of documents với similarity scores
         """
         # Get query embedding
         query_embedding = self.client.embed([query])[0]
-        
+
         # Calculate similarities
         similarities = np.dot(self.corpus_embeddings, query_embedding)
-        
+
         # Get top-k
         top_indices = np.argsort(similarities)[::-1][:top_k]
-        
+
         results = [
             {
                 **self.corpus[idx],
@@ -1284,7 +1284,7 @@ class RAGSystem:
             }
             for idx in top_indices
         ]
-        
+
         return results
 
 # Usage
@@ -1295,12 +1295,12 @@ if __name__ == "__main__":
         {"id": "doc2", "text": "Bộ luật Hình sự về tội xâm phạm tài sản"},
         {"id": "doc3", "text": "Luật Dân sự về quyền sở hữu tài sản"},
     ]
-    
+
     rag = RAGSystem("http://YOUR_DROPLET_IP:5000", corpus)
-    
+
     # Search
     results = rag.search("quyền sở hữu đất đai", top_k=2)
-    
+
     print("\nSearch Results:")
     for result in results:
         print(f"[{result['score']:.3f}] {result['id']}: {result['text']}")
@@ -1439,4 +1439,3 @@ Bạn đã có:
 - Integrate API vào backend của bạn
 - Setup monitoring & alerting
 - Consider load balancer nếu traffic cao
-

@@ -1,29 +1,30 @@
 import json
 import logging
 import os
+
+from custom_embedding import get_custom_embedding
 from openai import OpenAI
 from redis import InvalidResponse
-from custom_embedding import get_custom_embedding
 
 logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", default=None)
 
+
 def get_openai_client():
     return OpenAI(api_key=OPENAI_API_KEY)
 
+
 client = get_openai_client()
+
 
 def openai_chat_complete(messages=(), model="gpt-4o-mini", raw=False):
     logger.info("Chat complete for {}".format(messages))
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages
-    )
+    response = client.chat.completions.create(model=model, messages=messages)
     if raw:
         return response.choices[0].message
     output = response.choices[0].message
-    logger.info("Chat complete output: ".format(output))
+    logger.info(f"Chat complete output: {output}")
     return output.content
 
 
@@ -45,7 +46,9 @@ def gen_doc_prompt(docs):
     """
     doc_prompt = ""
     for doc in docs:
-        doc_prompt += f"Câu hỏi: {doc['question']} \n Câu trả lời: {doc['content']} \n\n"
+        doc_prompt += (
+            f"Câu hỏi: {doc['question']} \n Câu trả lời: {doc['content']} \n\n"
+        )
 
     return "Tài liệu tham khảo: \n{}".format(doc_prompt)
 
@@ -68,16 +71,28 @@ def detect_user_intent(history, message):
     # Convert history to list messages
     history_messages = generate_conversation_text(history)
     logger.info(f"History messages: {history_messages}")
-    
+
     # Check if this is likely a follow-up question
-    follow_up_indicators = ["đó", "này", "kia", "thế", "vậy", "nữa", "còn", "như vậy", "như thế"]
-    is_follow_up = any(indicator in message.lower() for indicator in follow_up_indicators)
-    
+    follow_up_indicators = [
+        "đó",
+        "này",
+        "kia",
+        "thế",
+        "vậy",
+        "nữa",
+        "còn",
+        "như vậy",
+        "như thế",
+    ]
+    is_follow_up = any(
+        indicator in message.lower() for indicator in follow_up_indicators
+    )
+
     # If no history or not a follow-up, return original
     if not history or len(history) <= 1 and not is_follow_up:
         logger.info("No context needed, returning original query")
         return message
-    
+
     # Update documents to prompt with better Vietnamese legal context
     user_prompt = f"""Bạn là trợ lý AI chuyên về luật pháp Việt Nam. Nhiệm vụ của bạn là viết lại câu hỏi tiếp theo thành một câu hỏi độc lập, rõ ràng và đầy đủ ngữ cảnh.
 
@@ -102,11 +117,14 @@ Kết quả: "Chi phí thủ tục ly hôn theo pháp luật Việt Nam là bao 
 Câu hỏi đã viết lại:"""
 
     openai_messages = [
-        {"role": "system", "content": "Bạn là chuyên gia tư vấn pháp luật Việt Nam, giỏi phân tích và làm rõ câu hỏi pháp lý."},
-        {"role": "user", "content": user_prompt}
+        {
+            "role": "system",
+            "content": "Bạn là chuyên gia tư vấn pháp luật Việt Nam, giỏi phân tích và làm rõ câu hỏi pháp lý.",
+        },
+        {"role": "user", "content": user_prompt},
     ]
     logger.info(f"Rephrase input messages: {openai_messages}")
-    
+
     try:
         rephrased = openai_chat_complete(openai_messages)
         logger.info(f"Rephrased question: {rephrased}")
@@ -116,12 +134,11 @@ Câu hỏi đã viết lại:"""
         return message
 
 
-
 def detect_route(history, message):
     """
     Detect the appropriate tool/route for handling the user's query.
     Enhanced for Vietnamese legal chatbot with 4 routing options including agent tools.
-    
+
     Routes:
     - legal_rag: Questions about Vietnamese laws, regulations (uses RAG system with vector search)
     - agent_tools: Questions requiring calculation, validation, or complex reasoning (uses ReAct agent)
@@ -129,7 +146,7 @@ def detect_route(history, message):
     - general_chat: Greetings, small talk, off-topic conversations
     """
     logger.info(f"Detect route on history messages: {history}")
-    
+
     # Format history for better context
     history_text = ""
     if history and len(history) > 1:
@@ -140,7 +157,7 @@ def detect_route(history, message):
                 history_text += f"Người dùng: {content}\n"
             elif role == "assistant":
                 history_text += f"Trợ lý: {content}\n"
-    
+
     # Improved prompt with agent_tools route
     user_prompt = f"""Bạn là hệ thống định tuyến thông minh cho chatbot tư vấn pháp luật Việt Nam. Phân tích câu hỏi và chọn công cụ phù hợp nhất.
 
@@ -198,14 +215,17 @@ HƯỚNG DẪN PHÂN LOẠI:
 Phân loại:"""
 
     openai_messages = [
-        {"role": "system", "content": "Bạn là hệ thống định tuyến chính xác. Chỉ trả về một trong bốn giá trị: legal_rag, agent_tools, web_search, general_chat"},
-        {"role": "user", "content": user_prompt}
+        {
+            "role": "system",
+            "content": "Bạn là hệ thống định tuyến chính xác. Chỉ trả về một trong bốn giá trị: legal_rag, agent_tools, web_search, general_chat",
+        },
+        {"role": "user", "content": user_prompt},
     ]
     logger.info(f"Routing query: {message}")
-    
+
     try:
         route = openai_chat_complete(openai_messages).strip().lower()
-        
+
         # Validate route
         valid_routes = ["legal_rag", "agent_tools", "web_search", "general_chat"]
         if route not in valid_routes:
@@ -217,20 +237,32 @@ Phân loại:"""
             else:
                 # Default logic based on keywords
                 message_lower = message.lower()
-                
+
                 # Check for calculation/validation keywords
-                calc_keywords = ["tính", "kiểm tra", "hợp lệ", "đủ tuổi", "chia", "phạt", "thời hiệu"]
+                calc_keywords = [
+                    "tính",
+                    "kiểm tra",
+                    "hợp lệ",
+                    "đủ tuổi",
+                    "chia",
+                    "phạt",
+                    "thời hiệu",
+                ]
                 if any(kw in message_lower for kw in calc_keywords):
-                    logger.warning(f"Invalid route '{route}', detected calculation keywords, using 'agent_tools'")
+                    logger.warning(
+                        f"Invalid route '{route}', detected calculation keywords, using 'agent_tools'"
+                    )
                     route = "agent_tools"
                 else:
                     # Default to legal_rag for legal questions
-                    logger.warning(f"Invalid route '{route}', defaulting to 'legal_rag'")
+                    logger.warning(
+                        f"Invalid route '{route}', defaulting to 'legal_rag'"
+                    )
                     route = "legal_rag"
-        
+
         logger.info(f"Detected route: {route}")
         return route
-        
+
     except Exception as e:
         logger.error(f"Error detecting route: {e}")
         # Default to legal_rag
@@ -257,7 +289,10 @@ def get_financial_agent_answer(messages, model="gpt-4o", tools=None):
     # Attempt to extract response details
     if not resp.choices:
         logger.error("No choices available in the response.")
-        return {"role": "assistant", "content": "An error occurred, please try again later."}
+        return {
+            "role": "assistant",
+            "content": "An error occurred, please try again later.",
+        }
 
     choice = resp.choices[0]
     return choice
@@ -272,12 +307,13 @@ def convert_tool_calls_to_json(tool_calls):
                 "type": "function",
                 "function": {
                     "arguments": json.dumps(call.function.arguments),
-                    "name": call.function.name
-                }
+                    "name": call.function.name,
+                },
             }
             for call in tool_calls
-        ]
+        ],
     }
+
 
 def get_financial_agent_handle(messages, model="gpt-4o", tools=None):
     if not tools:
@@ -297,24 +333,31 @@ def get_financial_agent_handle(messages, model="gpt-4o", tools=None):
         # Iterate through each tool call and execute the corresponding function
         for tool_call in resp_tool_calls:
             # Display the tool call details
-            logger.info(f"Tool call: {tool_call.function.name}({tool_call.function.arguments})")
-            # Retrieve the tool function from available tools
-            tool = available_tools[tool_call.function.name]
+            logger.info(
+                f"Tool call: {tool_call.function.name}({tool_call.function.arguments})"
+            )
+            # Note: This function needs to be connected to an actual tool registry
+            # tool = available_tools[tool_call.function.name]
             # Parse the arguments for the tool function
             tool_args = json.loads(tool_call.function.arguments)
             # Execute the tool function and get the result
-            result = tool(**tool_args)
-            tool_args['result'] = result
+            # result = tool(**tool_args)
+            result = "Tool execution disabled for now"
+            tool_args["result"] = result
             # Append the tool's response to the tool_messages list
-            tool_messages.append({
-                "role": "tool",  # Indicate this message is from a tool
-                "content": json.dumps(tool_args),  # The result of the tool function
-                "tool_call_id": tool_call.id,  # The ID of the tool call
-            })
+            tool_messages.append(
+                {
+                    "role": "tool",  # Indicate this message is from a tool
+                    "content": json.dumps(tool_args),  # The result of the tool function
+                    "tool_call_id": tool_call.id,  # The ID of the tool call
+                }
+            )
         # Update the new message to get response from LLM
         # Append the tool messages to the existing messages
         # Check here: https://platform.openai.com/docs/guides/function-calling
-        next_messages = messages + [convert_tool_calls_to_json(resp_tool_calls)] + tool_messages
+        next_messages = (
+            messages + [convert_tool_calls_to_json(resp_tool_calls)] + tool_messages
+        )
         return get_financial_agent_handle(next_messages, model, tools)
     else:
         raise InvalidResponse(f"The response is invalid: {choice}")

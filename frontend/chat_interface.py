@@ -1,11 +1,10 @@
 import json
 import logging
 import time
-import requests
 
+import requests
 import streamlit as st
 from tenacity import retry, stop_after_attempt, wait_exponential
-
 
 st.title("Chatbot UI")
 
@@ -15,22 +14,19 @@ bot_id = "botFinance"
 user_id = "1"
 
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=20)
-)
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=20))
 def send_user_request(text):
     url = f"http://chatbot-api:8000/chat/complete"
 
-    payload = json.dumps({
-        "user_message": text,
-        "user_id": str(user_id),
-        "bot_id": bot_id,
-        "sync_request": False
-    })
-    headers = {
-        'Content-Type': 'application/json'
-    }
+    payload = json.dumps(
+        {
+            "user_message": text,
+            "user_id": str(user_id),
+            "bot_id": bot_id,
+            "sync_request": False,
+        }
+    )
+    headers = {"Content-Type": "application/json"}
 
     response = requests.request("POST", url, headers=headers, data=payload, timeout=10)
     if response.status_code != 200:
@@ -38,10 +34,7 @@ def send_user_request(text):
     return json.loads(response.text)
 
 
-@retry(
-    stop=stop_after_attempt(4),
-    wait=wait_exponential(multiplier=1, min=4, max=20)
-)
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=1, min=4, max=20))
 def get_bot_response(request_id):
     url = f"http://chatbot-api:8000/chat/complete/{request_id}"
 
@@ -51,17 +44,14 @@ def get_bot_response(request_id):
     return response.status_code, json.loads(response.text)
 
 
-@retry(
-    stop=stop_after_attempt(2),
-    wait=wait_exponential(multiplier=1, min=4, max=20)
-)
+@retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=4, max=20))
 def get_chat_complete(text):
     user_request = send_user_request(text)
     request_id = user_request["task_id"]
     status_code, chat_response = get_bot_response(request_id)
     if status_code == 200:
         print(chat_response)
-        return chat_response['task_result']['content']
+        return chat_response["task_result"]["content"]
     else:
         raise TimeoutError("Request fail, try again please")
 
@@ -72,9 +62,9 @@ def response_generator(user_message):
     for line in res.split("\n\n"):
         logging.info(f"Line: {line}")
         for sen in line.split("\n"):
-            yield sen + '\n\n'
+            yield sen + "\n\n"
             time.sleep(0.05)
-        yield '\n'
+        yield "\n"
     return res
 
 

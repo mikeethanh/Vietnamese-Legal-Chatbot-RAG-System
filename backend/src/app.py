@@ -1,19 +1,20 @@
-from dataclasses import Field
 import logging
 import time
+from dataclasses import Field
 from typing import Dict, Optional
+
 from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-from models import insert_document
-from utils import setup_logging
 from tasks import index_document_v2, llm_handle_message
+from utils import setup_logging
 from vectorize import create_collection
 
+from models import insert_document
+
 # Constants
-TASK_TIMEOUT = 60  
-POLLING_INTERVAL = 0.5 
+TASK_TIMEOUT = 60
+POLLING_INTERVAL = 0.5
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ app = FastAPI()
 
 
 class CompleteRequest(BaseModel):
-    bot_id: Optional[str] = 'botLawyer'
+    bot_id: Optional[str] = "botLawyer"
     user_id: str
     user_message: str
     sync_request: Optional[bool] = False
@@ -42,7 +43,9 @@ async def complete(data: CompleteRequest):
     logger.info(f"Complete chat from user {user_id} to {bot_id}: {user_message}")
 
     if not user_message or not user_id:
-        raise HTTPException(status_code=400, detail="User id and user message are required")
+        raise HTTPException(
+            status_code=400, detail="User id and user message are required"
+        )
 
     if data.sync_request:
         response = llm_handle_message(bot_id, user_id, user_message)
@@ -60,13 +63,13 @@ async def get_response(task_id: str):
         task_status = task_result.status
         logger.info(f"Task result: {task_result.result}")
 
-        if task_status == 'PENDING':
+        if task_status == "PENDING":
             if time.time() - start_time > TASK_TIMEOUT:
                 return {
                     "task_id": task_id,
                     "task_status": task_result.status,
                     "task_result": task_result.result,
-                    "error_message": "Service timeout, retry please"
+                    "error_message": "Service timeout, retry please",
                 }
             else:
                 time.sleep(POLLING_INTERVAL)  # sleep for 0.5 seconds before retrying
@@ -74,7 +77,7 @@ async def get_response(task_id: str):
             result = {
                 "task_id": task_id,
                 "task_status": task_result.status,
-                "task_result": task_result.result
+                "task_result": task_result.result,
             }
             return result
 
@@ -97,12 +100,16 @@ async def create_document(data: Dict):
     index_status = index_document_v2(doc_id, question, content)
     return {"status": create_status is not None, "index_status": index_status}
 
+
 @app.post("/data/import")
 async def import_qa_data_endpoint():
     from import_data import import_qa_data
+
     success = import_qa_data()
     return {"success": success}
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app:app", host="0.0.0.0", port=8002, workers=2, log_level="info")

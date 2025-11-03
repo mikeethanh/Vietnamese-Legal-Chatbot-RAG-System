@@ -222,7 +222,7 @@ Agent thinking:
 Tool execution:
   - Result: 4,500,000 VNĐ
   - Note: Theo quy định Bộ luật Dân sự 2015
-  
+
 Output: "Tiền phạt vi phạm hợp đồng là 4.5 triệu VNĐ..."
 ```
 
@@ -236,7 +236,7 @@ Process:
   - Search Qdrant vector DB
   - Rerank top 5 docs
   - Generate answer with legal citations
-  
+
 Output: "Theo Điều 42 Bộ luật Lao động 2019, người lao động bị sa thải trái luật có quyền..."
 ```
 
@@ -248,7 +248,7 @@ Routing: web_search
 Process:
   - Tavily search: "Việt Nam pháp luật: lương tối thiểu vùng 1 2024"
   - Get AI summary + sources
-  
+
 Output: "Theo Nghị định xxx/2024, lương tối thiểu vùng 1 từ 01/7/2024 là..."
 ```
 

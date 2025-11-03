@@ -46,7 +46,7 @@ run_working_tests_with_coverage() {
         --cov-report=xml
 }
 
-# Run unit tests specifically  
+# Run unit tests specifically
 run_unit_tests() {
     print_status "Running unit tests..."
     pytest $WORKING_TESTS -v \
@@ -63,10 +63,10 @@ run_quick_check() {
 # Main function
 main() {
     local test_type=${1:-"working"}
-    
+
     print_status "Vietnamese Legal Chatbot Test Runner (Working Tests Only)"
     print_status "Test type: $test_type"
-    
+
     case $test_type in
         "working")
             run_working_tests
@@ -86,7 +86,7 @@ main() {
             exit 1
             ;;
     esac
-    
+
     print_status "Test execution completed!"
 }
 

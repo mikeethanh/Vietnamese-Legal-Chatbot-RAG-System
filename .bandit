@@ -1,0 +1,3 @@
+[bandit]
+exclude = tests,migrations,__pycache__,.git
+skips = B101,B601,B602,B104,B108

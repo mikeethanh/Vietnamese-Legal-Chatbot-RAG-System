@@ -1,4 +1,5 @@
 import logging
+
 import redis
 from utils import generate_request_id
 
@@ -18,7 +19,7 @@ def get_conversation_id(bot_id, user_id, ttl_seconds=360):
     try:
         if redis_client.exists(key):
             redis_client.expire(key, ttl_seconds)
-            return redis_client.get(key).decode('utf-8')
+            return redis_client.get(key).decode("utf-8")
         else:
             conversation_id = generate_request_id()
             redis_client.set(key, conversation_id, ex=ttl_seconds)

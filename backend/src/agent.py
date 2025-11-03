@@ -1,37 +1,39 @@
-import logging
 import json
+import logging
 from typing import Dict
 
 from celery import shared_task
-from llama_index.core.agent import ReActAgent
-from llama_index.llms.openai import OpenAI
-from llama_index.core.llms import ChatMessage
-from llama_index.core.tools import BaseTool, FunctionTool
-
-from search import search_engine
 from legal_tools import (
     calculate_contract_penalty,
-    check_legal_entity_age, 
     calculate_inheritance_share,
     check_business_name_rules,
-    get_statute_of_limitations
+    check_legal_entity_age,
+    get_statute_of_limitations,
 )
-from tavily_tool import tavily_search_legal, tavily_qna
+from llama_index.core.agent import ReActAgent
+from llama_index.core.llms import ChatMessage
+from llama_index.core.tools import BaseTool, FunctionTool
+from llama_index.llms.openai import OpenAI
+from search import search_engine
+from tavily_tool import tavily_qna, tavily_search_legal
 
 logger = logging.getLogger(__name__)
 
 
 # ===== LEGAL CALCULATION TOOLS =====
 
-def contract_penalty_calculator(contract_value: float, penalty_rate: float, days_late: int) -> str:
+
+def contract_penalty_calculator(
+    contract_value: float, penalty_rate: float, days_late: int
+) -> str:
     """
     Tính tiền phạt vi phạm hợp đồng theo Bộ luật Dân sự Việt Nam.
-    
+
     Args:
         contract_value: Giá trị hợp đồng (VNĐ), ví dụ: 100000000 (100 triệu)
         penalty_rate: Tỷ lệ phạt theo hợp đồng (% mỗi ngày), ví dụ: 0.1 (0.1%/ngày)
         days_late: Số ngày chậm trễ, ví dụ: 30
-    
+
     Returns:
         Kết quả tính toán tiền phạt chi tiết
     """
@@ -42,11 +44,11 @@ def contract_penalty_calculator(contract_value: float, penalty_rate: float, days
 def legal_age_checker(birth_year: int, action_type: str = "sign_contract") -> str:
     """
     Kiểm tra tuổi pháp lý để thực hiện hành vi dân sự.
-    
+
     Args:
         birth_year: Năm sinh, ví dụ: 2005
         action_type: Loại hành vi, có thể là: "sign_contract" (ký hợp đồng), "marriage" (kết hôn), "work" (làm việc), "criminal_responsibility" (chịu trách nhiệm hình sự)
-    
+
     Returns:
         Thông tin về khả năng pháp lý và căn cứ pháp luật
     """
@@ -57,11 +59,11 @@ def legal_age_checker(birth_year: int, action_type: str = "sign_contract") -> st
 def inheritance_calculator(total_value: float, heirs_json: str) -> str:
     """
     Tính phần thừa kế theo pháp luật Việt Nam (hàng thừa kế thứ nhất).
-    
+
     Args:
         total_value: Tổng giá trị tài sản thừa kế (VNĐ), ví dụ: 500000000 (500 triệu)
         heirs_json: Danh sách người thừa kế dạng JSON string, ví dụ: '[{"name":"Nguyễn Văn A","relation":"child","is_minor":false},{"name":"Trần Thị B","relation":"spouse","is_minor":false}]'
-    
+
     Returns:
         Phân chia tài sản thừa kế cho từng người
     """
@@ -70,16 +72,18 @@ def inheritance_calculator(total_value: float, heirs_json: str) -> str:
         result = calculate_inheritance_share(total_value, heirs)
         return json.dumps(result, ensure_ascii=False, indent=2)
     except json.JSONDecodeError:
-        return json.dumps({"error": "heirs_json không đúng định dạng JSON"}, ensure_ascii=False)
+        return json.dumps(
+            {"error": "heirs_json không đúng định dạng JSON"}, ensure_ascii=False
+        )
 
 
 def business_name_validator(business_name: str) -> str:
     """
     Kiểm tra tên doanh nghiệp có hợp lệ theo Luật Doanh nghiệp Việt Nam.
-    
+
     Args:
         business_name: Tên doanh nghiệp cần kiểm tra, ví dụ: "Công ty TNHH ABC"
-    
+
     Returns:
         Kết quả kiểm tra tính hợp lệ và các lưu ý
     """
@@ -90,10 +94,10 @@ def business_name_validator(business_name: str) -> str:
 def statute_lookup(case_type: str) -> str:
     """
     Tra cứu thời hiệu khởi kiện theo pháp luật Việt Nam.
-    
+
     Args:
         case_type: Loại vụ việc, có thể là: "civil" (dân sự), "labor" (lao động), "administrative" (hành chính), "criminal" (hình sự)
-    
+
     Returns:
         Thông tin về thời hiệu và căn cứ pháp lý
     """
@@ -103,15 +107,16 @@ def statute_lookup(case_type: str) -> str:
 
 # ===== WEB SEARCH TOOLS =====
 
+
 def web_search_tool(query: str, max_results: int = 5) -> str:
     """
     Tìm kiếm thông tin pháp luật trên internet sử dụng Google Search.
     Dùng khi cần tìm tin tức, văn bản pháp luật mới, hoặc thông tin cập nhật.
-    
+
     Args:
         query: Từ khóa tìm kiếm, ví dụ: "Luật Đất đai 2024 sửa đổi"
         max_results: Số kết quả tối đa (mặc định 5)
-    
+
     Returns:
         Kết quả tìm kiếm với tiêu đề, link và nội dung tóm tắt
     """
@@ -126,11 +131,11 @@ def tavily_search_tool(query: str, max_results: int = 5) -> str:
     """
     Tìm kiếm thông tin pháp luật sử dụng Tavily AI (tìm kiếm thông minh với AI).
     Tavily cung cấp kết quả tốt hơn và tóm tắt tự động cho câu hỏi pháp lý.
-    
+
     Args:
         query: Câu hỏi hoặc từ khóa tìm kiếm, ví dụ: "Quy định mới về BHXH 2024"
         max_results: Số kết quả tối đa (mặc định 5)
-    
+
     Returns:
         Kết quả tìm kiếm với tóm tắt AI và các nguồn liên quan
     """
@@ -145,10 +150,10 @@ def quick_answer_tool(question: str) -> str:
     """
     Trả lời nhanh câu hỏi bằng tìm kiếm web (Tavily Q&A).
     Dùng cho câu hỏi sự kiện, thống kê, hoặc thông tin cập nhật cần web search.
-    
+
     Args:
         question: Câu hỏi cần trả lời, ví dụ: "Mức lương tối thiểu vùng 1 năm 2024"
-    
+
     Returns:
         Câu trả lời trực tiếp từ web search
     """
@@ -184,7 +189,7 @@ all_tools = [
     # Search tools
     google_search_tool,
     tavily_tool,
-    quick_answer_tool_func
+    quick_answer_tool_func,
 ]
 
 # Initialize LLM and Agent
@@ -215,11 +220,7 @@ LƯU Ý:
 - Trả lời chính xác, chuyên nghiệp, dễ hiểu"""
 
 ai_agent = ReActAgent.from_tools(
-    all_tools, 
-    llm=llm, 
-    verbose=True,
-    max_iterations=10,
-    context=agent_system_prompt
+    all_tools, llm=llm, verbose=True, max_iterations=10, context=agent_system_prompt
 )
 
 logger.info(f"Agent initialized with {len(all_tools)} tools")
@@ -229,10 +230,10 @@ logger.info(f"Agent initialized with {len(all_tools)} tools")
 def ai_agent_handle(question: str) -> str:
     """
     Handle user question using ReAct agent with tools.
-    
+
     Args:
         question: User's question
-    
+
     Returns:
         Agent's response
     """
@@ -255,11 +256,11 @@ def get_agent_tools_summary() -> Dict:
             "legal_age_checker - Kiểm tra tuổi pháp lý",
             "inheritance_calculator - Tính thừa kế",
             "business_name_validator - Kiểm tra tên DN",
-            "statute_lookup - Tra cứu thời hiệu"
+            "statute_lookup - Tra cứu thời hiệu",
         ],
         "search_tools": [
             "google_search_tool - Tìm kiếm Google",
             "tavily_search_tool - Tìm kiếm Tavily AI",
-            "quick_answer_tool - Trả lời nhanh"
-        ]
+            "quick_answer_tool - Trả lời nhanh",
+        ],
     }

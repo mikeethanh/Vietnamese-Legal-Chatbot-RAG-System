@@ -157,12 +157,12 @@ def semantic_search(query: str, documents: list[str], top_k: int = 5):
         f"{API_URL}/similarity",
         json={"texts1": [query], "texts2": documents}
     )
-    
+
     similarities = np.array(response.json()["similarities"][0])
-    
+
     # Get top-k indices
     top_indices = np.argsort(similarities)[::-1][:top_k]
-    
+
     results = [
         {
             "document": documents[idx],
@@ -171,7 +171,7 @@ def semantic_search(query: str, documents: list[str], top_k: int = 5):
         }
         for i, idx in enumerate(top_indices)
     ]
-    
+
     return results
 
 # Example usage
@@ -208,18 +208,18 @@ def cluster_documents(documents: list[str], n_clusters: int = 3):
         json={"texts": documents}
     )
     embeddings = np.array(response.json()["embeddings"])
-    
+
     # Clustering
     kmeans = KMeans(n_clusters=n_clusters, random_state=42)
     labels = kmeans.fit_predict(embeddings)
-    
+
     # Group by cluster
     clusters = {}
     for i, label in enumerate(labels):
         if label not in clusters:
             clusters[label] = []
         clusters[label].append(documents[i])
-    
+
     return clusters
 
 # Example
@@ -320,7 +320,7 @@ curl -X POST http://YOUR_DROPLET_IP:5000/similarity \
    # ❌ Slow
    for text in texts:
        embedding = get_embedding([text])
-   
+
    # ✅ Fast
    embeddings = get_embeddings(texts)
    ```
@@ -385,7 +385,7 @@ API_KEY = os.getenv('API_KEY')
 def verify_api_key():
     if request.path == '/health':
         return
-    
+
     key = request.headers.get('X-API-Key')
     if key != API_KEY:
         return jsonify({"error": "Invalid API key"}), 401
