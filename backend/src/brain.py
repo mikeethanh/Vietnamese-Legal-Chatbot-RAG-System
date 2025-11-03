@@ -2,10 +2,9 @@ import json
 import logging
 import os
 
+from custom_embedding import get_custom_embedding
 from openai import OpenAI
 from redis import InvalidResponse
-
-from custom_embedding import get_custom_embedding
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ def openai_chat_complete(messages=(), model="gpt-4o-mini", raw=False):
     if raw:
         return response.choices[0].message
     output = response.choices[0].message
-    logger.info(f"Chat complete output: {output}")
+    logger.info("Chat complete output: ".format(output))
     return output.content
 
 
@@ -337,13 +336,12 @@ def get_financial_agent_handle(messages, model="gpt-4o", tools=None):
             logger.info(
                 f"Tool call: {tool_call.function.name}({tool_call.function.arguments})"
             )
-            # Note: This function needs to be connected to an actual tool registry
-            # tool = available_tools[tool_call.function.name]
+            # Retrieve the tool function from available tools
+            tool = available_tools[tool_call.function.name]
             # Parse the arguments for the tool function
             tool_args = json.loads(tool_call.function.arguments)
             # Execute the tool function and get the result
-            # result = tool(**tool_args)
-            result = "Tool execution disabled for now"
+            result = tool(**tool_args)
             tool_args["result"] = result
             # Append the tool's response to the tool_messages list
             tool_messages.append(
