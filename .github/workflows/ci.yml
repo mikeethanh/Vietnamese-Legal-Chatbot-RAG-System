@@ -298,41 +298,48 @@ jobs:
       - name: Test Docker containers
         run: |
           echo "Starting backend container..."
-          # Test backend container
-          docker run --rm -d --name backend-test \
+          # Test backend container with more debugging
+          container_id=$(docker run --rm -d --name backend-test \
             -e OPENAI_API_KEY=test-key \
             -e DEBUG=true \
             -p 8000:8000 \
-            legal-chatbot-backend:test
-
+            legal-chatbot-backend:test)
+          
+          echo "Container ID: $container_id"
           echo "Waiting for container to start..."
-          sleep 5
+          sleep 2
+
+          # Check container status immediately
+          echo "Checking container status..."
+          docker ps -a | grep backend-test || echo "Container not found in ps -a"
+          
+          # Try to get logs immediately
+          echo "Getting container logs..."
+          docker logs backend-test 2>&1 || echo "No logs available yet"
 
           # Check if container is still running
-          if ! docker ps | grep -q backend-test; then
-            echo "Container crashed immediately. Checking logs:"
-            docker logs backend-test 2>&1 || echo "No logs available"
-            echo "Checking if container exited:"
-            docker ps -a | grep backend-test || echo "Container not found in ps -a"
-            exit 1
-          fi
-
-          echo "Container is running. Waiting additional time for app to start..."
-          sleep 15
-
-          echo "Testing health endpoints..."
-          # Test health endpoint with more detailed output
-          if curl -f -v http://localhost:8000/health; then
-            echo "✅ Backend health endpoint accessible"
-          elif curl -f -v http://localhost:8000/; then
-            echo "✅ Backend root endpoint accessible"
-          elif curl -f -v http://localhost:8000/docs; then
-            echo "✅ Backend docs endpoint accessible"
+          if docker ps | grep -q backend-test; then
+            echo "✅ Container is running, waiting for app to start..."
+            sleep 15
+            
+            echo "Testing health endpoints..."
+            # Test health endpoint with more detailed output
+            if curl -f -v http://localhost:8000/health 2>&1; then
+              echo "✅ Backend health endpoint accessible"
+            elif curl -f -v http://localhost:8000/ 2>&1; then
+              echo "✅ Backend root endpoint accessible"
+            elif curl -f -v http://localhost:8000/docs 2>&1; then
+              echo "✅ Backend docs endpoint accessible"
+            else
+              echo "❌ All endpoints failed. Final container logs:"
+              docker logs backend-test 2>&1 || echo "No logs available"
+              exit 1
+            fi
           else
-            echo "❌ All endpoints failed. Checking container status:"
-            docker ps | grep backend-test || echo "Container not running"
-            echo "Container logs:"
+            echo "❌ Container exited immediately. Final logs:"
             docker logs backend-test 2>&1 || echo "No logs available"
+            echo "Container status in ps -a:"
+            docker ps -a | grep backend-test || echo "Container completely removed"
             exit 1
           fi
 
