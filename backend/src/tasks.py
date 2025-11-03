@@ -19,6 +19,7 @@ from database import get_celery_app
 from models import get_conversation_messages, update_chat_conversation
 from query_rewriter import rewrite_query_to_multi_queries, rewrite_query_with_context
 from rerank import rerank_documents
+from search import hybrid_search, search_engine  # Import new hybrid search
 from splitter import split_document
 from summarizer import summarize_text
 from tavily_tool import tavily_search_legal
@@ -39,27 +40,56 @@ def follow_up_question(history, question):
     return user_intent
 
 
-def retrieve_with_multi_query(queries: List[str], top_k: int = 5) -> List[Dict]:
+def retrieve_with_hybrid_search(queries: List[str], top_k: int = 5) -> List[Dict]:
     """
-    Retrieve documents using multiple queries and merge results.
-    This improves retrieval coverage by searching with diverse phrasings.
+    Enhanced retrieval using hybrid search (semantic + keyword)
+    This combines vector search with BM25 keyword search for better coverage.
 
     Args:
         queries: List of query variations
-        top_k: Number of documents to retrieve per query
+        top_k: Number of documents to retrieve
 
     Returns:
-        Merged and deduplicated list of documents
+        Merged and deduplicated list of documents with hybrid scores
     """
     all_docs = []
     seen_contents = set()
 
     for query in queries:
-        logger.info(f"Retrieving with query: {query}")
+        logger.info(f"Hybrid search for query: {query}")
+        
+        # Use hybrid search instead of pure vector search
+        docs = hybrid_search(query, limit=top_k)
+
+        # Deduplicate based on content
+        for doc in docs:
+            content_hash = hash(doc.get("content", ""))
+            if content_hash not in seen_contents:
+                seen_contents.add(content_hash)
+                # Preserve hybrid scoring information
+                doc["retrieval_query"] = query
+                all_docs.append(doc)
+
+    logger.info(
+        f"Retrieved {len(all_docs)} unique documents from {len(queries)} queries using hybrid search"
+    )
+    return all_docs
+
+
+def retrieve_with_multi_query_fallback(queries: List[str], top_k: int = 5) -> List[Dict]:
+    """
+    Fallback retrieval method using pure vector search
+    Used when hybrid search is not available or fails
+    """
+    all_docs = []
+    seen_contents = set()
+
+    for query in queries:
+        logger.info(f"Vector search fallback for query: {query}")
         # Get embedding for this query variation
         vector = get_embedding(query)
 
-        # Search documents
+        # Search documents using pure vector search
         docs = search_vector(DEFAULT_COLLECTION_NAME, vector, top_k)
 
         # Deduplicate based on content
@@ -67,10 +97,12 @@ def retrieve_with_multi_query(queries: List[str], top_k: int = 5) -> List[Dict]:
             content_hash = hash(doc.get("content", ""))
             if content_hash not in seen_contents:
                 seen_contents.add(content_hash)
+                doc["retrieval_query"] = query
+                doc["search_method"] = "vector_fallback"
                 all_docs.append(doc)
 
     logger.info(
-        f"Retrieved {len(all_docs)} unique documents from {len(queries)} queries"
+        f"Retrieved {len(all_docs)} unique documents from {len(queries)} queries using vector fallback"
     )
     return all_docs
 
@@ -94,8 +126,14 @@ def bot_rag_answer_message(history, question):
     )
     logger.info(f"Query variations: {query_variations}")
 
-    # Step 3: Retrieve documents using all query variations
-    retrieved_docs = retrieve_with_multi_query(query_variations, top_k=4)
+    # Step 3: Retrieve documents using hybrid search with fallback
+    try:
+        retrieved_docs = retrieve_with_hybrid_search(query_variations, top_k=4)
+        logger.info(f"Hybrid search retrieved {len(retrieved_docs)} documents")
+    except Exception as e:
+        logger.warning(f"Hybrid search failed, falling back to vector search: {e}")
+        retrieved_docs = retrieve_with_multi_query_fallback(query_variations, top_k=4)
+    
     logger.info(f"Retrieved {len(retrieved_docs)} documents before reranking")
 
     # Step 4: Rerank documents based on relevance to the original question
