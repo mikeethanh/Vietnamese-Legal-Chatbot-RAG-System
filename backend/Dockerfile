@@ -33,3 +33,6 @@ COPY . /usr/src/app/
 
 # run entrypoint.sh
 ENTRYPOINT ["/usr/src/app/entrypoint.sh"]
+
+# default command to run the app
+CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8000"]
