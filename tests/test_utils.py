@@ -1,5 +1,5 @@
 """
-Test utilities module
+Test utilities module - standalone functions without external dependencies
 """
 import json
 import tempfile
@@ -39,6 +39,7 @@ def create_test_qa_data() -> List[Dict[str, Any]]:
 
 def create_temp_json_file(data: List[Dict[str, Any]]) -> str:
     """Create a temporary JSON file with test data"""
+    import tempfile
     temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
     json.dump(data, temp_file, ensure_ascii=False, indent=2)
     temp_file.close()
@@ -51,3 +52,27 @@ def assert_valid_response_format(response: Dict[str, Any]):
     assert isinstance(response["answer"], str)
     assert isinstance(response["sources"], list)
     assert len(response["answer"]) > 0
+
+# Test the utils themselves
+def test_create_mock_response():
+    """Test the mock response creation"""
+    data = {"test": "value"}
+    mock_resp = create_mock_response(data, 200)
+    assert mock_resp.status_code == 200
+    assert mock_resp.json() == data
+
+def test_create_test_qa_data():
+    """Test the test data creation"""
+    data = create_test_qa_data()
+    assert len(data) == 2
+    assert all("question" in item for item in data)
+    assert all("answer" in item for item in data)
+
+def test_assert_valid_response_format():
+    """Test the response format validator"""
+    valid_response = {
+        "answer": "Test answer",
+        "sources": ["Source 1", "Source 2"]
+    }
+    # Should not raise an exception
+    assert_valid_response_format(valid_response)

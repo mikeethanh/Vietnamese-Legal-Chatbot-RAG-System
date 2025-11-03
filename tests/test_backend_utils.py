@@ -1,5 +1,5 @@
 """
-Test cases for backend utilities
+Test cases for backend utilities - testing actual backend functions
 """
 import pytest
 from unittest.mock import Mock, patch
@@ -10,71 +10,66 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend', 'src'))
 
 try:
-    from utils import extract_text_content, validate_file_type, safe_json_loads
+    from utils import generate_random_string, generate_request_id, ColoredFormatter
+    UTILS_AVAILABLE = True
 except ImportError:
-    # Skip if utils module not available
-    pytestmark = pytest.mark.skip("utils module not available")
+    UTILS_AVAILABLE = False
+    pytestmark = pytest.mark.skip("backend utils module not available")
 
-class TestUtils:
-    """Test utility functions"""
+@pytest.mark.skipif(not UTILS_AVAILABLE, reason="Backend utils not available")
+class TestBackendUtils:
+    """Test actual backend utility functions"""
     
-    def test_safe_json_loads_valid_json(self):
-        """Test safe JSON loading with valid JSON"""
-        valid_json = '{"key": "value", "number": 123}'
-        result = safe_json_loads(valid_json)
-        assert result == {"key": "value", "number": 123}
-    
-    def test_safe_json_loads_invalid_json(self):
-        """Test safe JSON loading with invalid JSON"""
-        invalid_json = '{"key": "value", invalid}'
-        result = safe_json_loads(invalid_json, default={})
-        assert result == {}
-    
-    def test_safe_json_loads_with_default(self):
-        """Test safe JSON loading with custom default"""
-        invalid_json = 'not json'
-        default_value = {"error": True}
-        result = safe_json_loads(invalid_json, default=default_value)
-        assert result == default_value
-    
-    def test_validate_file_type_valid_extensions(self):
-        """Test file type validation with valid extensions"""
-        valid_files = [
-            "document.pdf",
-            "data.json", 
-            "text.txt",
-            "data.jsonl"
-        ]
-        
-        for filename in valid_files:
-            assert validate_file_type(filename) is True
-    
-    def test_validate_file_type_invalid_extensions(self):
-        """Test file type validation with invalid extensions"""
-        invalid_files = [
-            "script.exe",
-            "image.jpg",
-            "video.mp4",
-            "file.unknown"
-        ]
-        
-        for filename in invalid_files:
-            assert validate_file_type(filename) is False
-    
-    def test_extract_text_content_simple(self):
-        """Test text content extraction"""
-        sample_text = "This is a sample text with some content."
-        result = extract_text_content(sample_text)
+    def test_generate_random_string_default_length(self):
+        """Test random string generation with default length"""
+        result = generate_random_string()
         assert isinstance(result, str)
-        assert len(result) > 0
-        assert "sample" in result.lower()
+        assert len(result) == 16  # Default length
     
-    def test_extract_text_content_empty(self):
-        """Test text content extraction with empty input"""
-        result = extract_text_content("")
-        assert result == ""
+    def test_generate_random_string_custom_length(self):
+        """Test random string generation with custom length"""
+        length = 32
+        result = generate_random_string(length)
+        assert isinstance(result, str)
+        assert len(result) == length
     
-    def test_extract_text_content_whitespace(self):
-        """Test text content extraction with whitespace"""
-        result = extract_text_content("   \n\t   ")
-        assert result.strip() == ""
+    def test_generate_random_string_uniqueness(self):
+        """Test that random strings are unique"""
+        result1 = generate_random_string()
+        result2 = generate_random_string()
+        assert result1 != result2
+    
+    def test_generate_request_id_default(self):
+        """Test request ID generation with default max length"""
+        result = generate_request_id()
+        assert isinstance(result, str)
+        assert len(result) <= 33  # max_length + 1
+    
+    def test_generate_request_id_custom_length(self):
+        """Test request ID generation with custom max length"""
+        max_length = 16
+        result = generate_request_id(max_length)
+        assert isinstance(result, str)
+        assert len(result) <= max_length + 1
+    
+    def test_generate_request_id_uniqueness(self):
+        """Test that request IDs are unique"""
+        result1 = generate_request_id()
+        result2 = generate_request_id()
+        assert result1 != result2
+    
+    def test_colored_formatter_creation(self):
+        """Test ColoredFormatter can be created"""
+        formatter = ColoredFormatter()
+        assert formatter is not None
+        assert hasattr(formatter, 'COLORS')
+        assert hasattr(formatter, 'EMOJI')
+    
+    def test_colored_formatter_colors(self):
+        """Test ColoredFormatter has expected colors"""
+        formatter = ColoredFormatter()
+        expected_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+        
+        for level in expected_levels:
+            assert level in formatter.COLORS
+            assert level in formatter.EMOJI
