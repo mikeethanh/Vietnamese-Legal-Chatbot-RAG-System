@@ -21,7 +21,7 @@ repos:
     rev: 7.1.1
     hooks:
       - id: flake8
-        args: [--config=setup.cfg]
+        args: [--max-line-length=88, --extend-ignore=E203,W503]
         exclude: ^(migrations/|__pycache__/)
 
   # Security checks
@@ -29,17 +29,16 @@ repos:
     rev: 1.7.9
     hooks:
       - id: bandit
-        args: [-r, .]
-        exclude: ^(tests/|migrations/|__pycache__|\.git)
+        args: [-r, backend/src, -f, json, -o, bandit-report.json]
+        exclude: ^(tests/|migrations/)
 
-  # Type checking (temporarily disabled for CI/CD setup)
-  # - repo: https://github.com/pre-commit/mirrors-mypy
-  #   rev: v1.11.2
-  #   hooks:
-  #     - id: mypy
-  #       args: [--config-file=mypy.ini]
-  #       additional_dependencies: [types-requests, types-PyYAML]
-  #       exclude: ^(tests/|migrations/|__pycache__|digital_ocean_setup/)
+  # Type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-requests, types-PyYAML]
+        exclude: ^(tests/|migrations/|__pycache__/)
 
   # General code quality
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -55,10 +54,10 @@ repos:
       - id: debug-statements
       - id: check-docstring-first
 
-  # Documentation (temporarily disabled for CI/CD setup)
-  # - repo: https://github.com/pycqa/pydocstyle
-  #   rev: 6.3.0
-  #   hooks:
-  #     - id: pydocstyle
-  #       args: [--convention=google]
-  #       exclude: ^(tests/|migrations/|__pycache__/)
+  # Documentation
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args: [--convention=google]
+        exclude: ^(tests/|migrations/|__pycache__/)
