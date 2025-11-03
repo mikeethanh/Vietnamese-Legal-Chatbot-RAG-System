@@ -35,6 +35,11 @@ async def root():
     return {"message": "Hello World"}
 
 
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "service": "Vietnamese Legal Chatbot Backend"}
+
+
 @app.post("/chat/complete")
 async def complete(data: CompleteRequest):
     bot_id = data.bot_id
