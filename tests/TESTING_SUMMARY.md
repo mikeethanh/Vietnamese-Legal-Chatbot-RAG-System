@@ -12,7 +12,7 @@ Tôi đã thiết kế và triển khai một hệ thống testing và CI/CD ho�
 ```
 tests/
 ├── __init__.py                 # Test package initialization
-├── conftest.py                # Pytest config & fixtures 
+├── conftest.py                # Pytest config & fixtures
 ├── test_utils.py              # Test utilities & helpers
 ├── test_basic.py              # Basic functionality tests
 ├── test_api.py                # FastAPI endpoint tests
@@ -112,5 +112,3 @@ make security
 # Comprehensive check
 make check-all
 ```
-
-
