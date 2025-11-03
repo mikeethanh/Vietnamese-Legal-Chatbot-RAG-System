@@ -1,6 +1,7 @@
 import logging
 
 import redis
+
 from utils import generate_request_id
 
 redis_client = redis.StrictRedis(host="valkey-db", port="6379", db=0)

@@ -2,15 +2,15 @@ import asyncio
 import logging
 from xml.dom import ValidationErr
 
-from cache import get_conversation_id
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.future import select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
-from utils import setup_logging
 
+from cache import get_conversation_id
 from database import engine, get_db
+from utils import setup_logging
 
 Base = declarative_base()
 Base.metadata.create_all(bind=engine)

@@ -1,10 +1,11 @@
 import logging
 import os
 
-from custom_embedding import get_custom_embedding
 from llama_index.core import Document
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.node_parser import SemanticSplitterNodeParser, TokenTextSplitter
+
+from custom_embedding import get_custom_embedding
 
 logger = logging.getLogger(__name__)
 

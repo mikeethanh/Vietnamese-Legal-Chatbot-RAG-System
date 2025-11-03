@@ -6,11 +6,11 @@ from typing import Dict, Optional
 from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+from models import insert_document
 from tasks import index_document_v2, llm_handle_message
 from utils import setup_logging
 from vectorize import create_collection
-
-from models import insert_document
 
 # Constants
 TASK_TIMEOUT = 60

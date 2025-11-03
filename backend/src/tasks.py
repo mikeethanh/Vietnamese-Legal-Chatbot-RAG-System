@@ -3,6 +3,8 @@ import logging
 from copy import copy
 from typing import Dict, List
 
+from celery import shared_task
+
 from agent import ai_agent_handle
 from brain import (
     detect_route,
@@ -12,8 +14,9 @@ from brain import (
     get_financial_agent_handle,
     openai_chat_complete,
 )
-from celery import shared_task
 from configs import DEFAULT_COLLECTION_NAME
+from database import get_celery_app
+from models import get_conversation_messages, update_chat_conversation
 from query_rewriter import rewrite_query_to_multi_queries, rewrite_query_with_context
 from rerank import rerank_documents
 from splitter import split_document
@@ -21,9 +24,6 @@ from summarizer import summarize_text
 from tavily_tool import tavily_search_legal
 from utils import setup_logging
 from vectorize import add_vector, search_vector
-
-from database import get_celery_app
-from models import get_conversation_messages, update_chat_conversation
 
 setup_logging()
 logger = logging.getLogger(__name__)

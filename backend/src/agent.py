@@ -3,6 +3,12 @@ import logging
 from typing import Dict
 
 from celery import shared_task
+from llama_index.core.agent import ReActAgent
+from llama_index.core.llms import ChatMessage
+from llama_index.core.tools import BaseTool, FunctionTool
+from llama_index.llms.openai import OpenAI
+from search import search_engine
+
 from legal_tools import (
     calculate_contract_penalty,
     calculate_inheritance_share,
@@ -10,11 +16,6 @@ from legal_tools import (
     check_legal_entity_age,
     get_statute_of_limitations,
 )
-from llama_index.core.agent import ReActAgent
-from llama_index.core.llms import ChatMessage
-from llama_index.core.tools import BaseTool, FunctionTool
-from llama_index.llms.openai import OpenAI
-from search import search_engine
 from tavily_tool import tavily_qna, tavily_search_legal
 
 logger = logging.getLogger(__name__)
