@@ -1,351 +1,248 @@
 """
 Enhanced Search Module for Vietnamese Legal Chatbot
-Implements hybrid search combining semantic vector search + keyword search
+Implements hybrid search combining semantic vector search + BM25 keyword search using LlamaIndex
 """
 
 import logging
+import pickle
 import re
-import math
-from collections import Counter, defaultdict
-from typing import Dict, List, Optional, Tuple, Union
-import numpy as np
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from llama_index.core import Document
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.retrievers import QueryFusionRetriever
+from llama_index.core.storage.docstore import SimpleDocumentStore
+from llama_index.retrievers.bm25 import BM25Retriever
 
 from brain import get_embedding
-from vectorize import search_vector
 from configs import DEFAULT_COLLECTION_NAME
+from vectorize import search_vector
 
 logger = logging.getLogger(__name__)
 
-
-class BM25:
-    """
-    BM25 implementation for keyword search
-    Optimized for Vietnamese legal documents
-    """
-    
-    def __init__(self, corpus: List[str], k1: float = 1.5, b: float = 0.75):
-        self.k1 = k1
-        self.b = b
-        self.corpus = corpus
-        self.doc_len = [len(doc.split()) for doc in corpus]
-        self.avgdl = sum(self.doc_len) / len(self.doc_len) if corpus else 0
-        self.doc_freqs = []
-        self.idf = {}
-        self.doc_count = len(corpus)
-        
-        # Build index
-        self._build_index()
-    
-    def _preprocess_text(self, text: str) -> List[str]:
-        """
-        Preprocess Vietnamese text for better keyword matching
-        """
-        # Lowercase
-        text = text.lower()
-        
-        # Remove special characters but keep Vietnamese characters
-        text = re.sub(r'[^\w\sáàảãạâấầẩẫậăắằẳẵặéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵđ]', ' ', text)
-        
-        # Split into words
-        words = text.split()
-        
-        # Remove single characters and common stop words
-        vietnamese_stopwords = {
-            'và', 'của', 'có', 'được', 'trong', 'với', 'để', 'theo', 'từ', 'về',
-            'này', 'đó', 'các', 'một', 'những', 'khi', 'nếu', 'thì', 'hoặc',
-            'phải', 'không', 'là', 'sẽ', 'đã', 'cho', 'tại', 'trên', 'dưới'
-        }
-        
-        words = [word for word in words if len(word) > 1 and word not in vietnamese_stopwords]
-        
-        return words
-    
-    def _build_index(self):
-        """Build inverted index and calculate IDF scores"""
-        df = defaultdict(int)
-        
-        for doc in self.corpus:
-            words = self._preprocess_text(doc)
-            word_freqs = Counter(words)
-            self.doc_freqs.append(word_freqs)
-            
-            # Count document frequency for each word
-            for word in set(words):
-                df[word] += 1
-        
-        # Calculate IDF
-        for word, freq in df.items():
-            self.idf[word] = math.log((self.doc_count - freq + 0.5) / (freq + 0.5) + 1.0)
-    
-    def search(self, query: str, top_k: int = 10) -> List[Tuple[int, float]]:
-        """
-        Search documents using BM25 scoring
-        
-        Returns:
-            List of (doc_index, score) sorted by score descending
-        """
-        query_words = self._preprocess_text(query)
-        scores = []
-        
-        for i, doc_freqs in enumerate(self.doc_freqs):
-            score = 0.0
-            doc_len = self.doc_len[i]
-            
-            for word in query_words:
-                if word in doc_freqs:
-                    tf = doc_freqs[word]
-                    idf = self.idf.get(word, 0)
-                    
-                    # BM25 formula
-                    numerator = tf * (self.k1 + 1)
-                    denominator = tf + self.k1 * (1 - self.b + self.b * doc_len / self.avgdl)
-                    score += idf * (numerator / denominator)
-            
-            scores.append((i, score))
-        
-        # Sort by score descending and return top_k
-        scores.sort(key=lambda x: x[1], reverse=True)
-        return scores[:top_k]
+# Global search components
+_docstore = None
+_bm25_retriever = None
+_search_engine_initialized = False
 
 
-class HybridSearchEngine:
+def initialize_search_index(documents: List[Dict]) -> bool:
     """
-    Hybrid search engine combining semantic vector search with keyword BM25 search
-    Optimized for Vietnamese legal documents
+    Initialize BM25 search index from documents
+    
+    Args:
+        documents: List of documents with keys: question, content, source, doc_id
+        
+    Returns:
+        bool: True if successful, False otherwise
     """
+    global _docstore, _bm25_retriever, _search_engine_initialized
     
-    def __init__(self):
-        self.bm25_index = None
-        self.documents_cache = []
-        self.collection_name = DEFAULT_COLLECTION_NAME
+    try:
+        logger.info(f"Initializing search index with {len(documents)} documents")
         
-        # Search weights
-        self.vector_weight = 0.7  # Semantic search weight
-        self.keyword_weight = 0.3  # Keyword search weight
-        
-        logger.info("Initialized HybridSearchEngine")
-    
-    def build_keyword_index(self, documents: List[Dict]):
-        """
-        Build BM25 index from documents
-        
-        Args:
-            documents: List of document dicts with 'content' and 'question' fields
-        """
-        self.documents_cache = documents
-        
-        # Create corpus for BM25 (combine question + content)
-        corpus = []
+        # Convert documents to LlamaIndex format
+        llama_docs = []
         for doc in documents:
-            text = f"{doc.get('question', '')} {doc.get('content', '')}"
-            corpus.append(text)
-        
-        # Build BM25 index
-        self.bm25_index = BM25(corpus)
-        logger.info(f"Built BM25 index for {len(documents)} documents")
-    
-    def expand_query(self, query: str) -> str:
-        """
-        Expand query with legal synonyms and related terms
-        """
-        legal_synonyms = {
-            'hợp đồng': ['hợp đồng', 'giao kèo', 'thỏa thuận'],
-            'vi phạm': ['vi phạm', 'phạm', 'trái'],
-            'phạt': ['phạt', 'xử phạt', 'tiền phạt'],
-            'thừa kế': ['thừa kế', 'kế thừa', 'gia tài'],
-            'ly hôn': ['ly hôn', 'li hôn', 'chấm dứt hôn nhân'],
-            'thuế': ['thuế', 'lệ phí', 'phí'],
-            'kiện tụng': ['kiện tụng', 'tranh chấp', 'tranh tụng'],
-            'bồi thường': ['bồi thường', 'đền bù', 'bồi hoàn'],
-        }
-        
-        expanded_terms = []
-        words = query.lower().split()
-        
-        for word in words:
-            expanded_terms.append(word)
-            # Add synonyms if found
-            for key, synonyms in legal_synonyms.items():
-                if word in key:
-                    expanded_terms.extend(synonyms)
-        
-        return ' '.join(expanded_terms)
-    
-    def vector_search(self, query: str, limit: int = 10) -> List[Dict]:
-        """
-        Perform semantic vector search
-        """
-        try:
-            # Get embedding
-            vector = get_embedding(query)
-            
-            # Search using Qdrant
-            results = search_vector(self.collection_name, vector, limit)
-            
-            # Add vector scores (Qdrant returns results sorted by similarity)
-            for i, doc in enumerate(results):
-                doc['vector_score'] = 1.0 - (i * 0.1)  # Decreasing score
-                doc['search_type'] = 'vector'
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Vector search failed: {e}")
-            return []
-    
-    def keyword_search(self, query: str, limit: int = 10) -> List[Dict]:
-        """
-        Perform keyword search using BM25
-        """
-        if not self.bm25_index or not self.documents_cache:
-            logger.warning("BM25 index not built, skipping keyword search")
-            return []
-        
-        try:
-            # Expand query
-            expanded_query = self.expand_query(query)
-            
-            # Search using BM25
-            bm25_results = self.bm25_index.search(expanded_query, limit)
-            
-            # Convert to document format
-            results = []
-            for doc_idx, score in bm25_results:
-                if score > 0:  # Only include results with positive scores
-                    doc = self.documents_cache[doc_idx].copy()
-                    doc['keyword_score'] = score
-                    doc['search_type'] = 'keyword'
-                    results.append(doc)
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Keyword search failed: {e}")
-            return []
-    
-    def combine_results(self, vector_results: List[Dict], keyword_results: List[Dict], 
-                       top_k: int = 10) -> List[Dict]:
-        """
-        Combine and rank results from vector and keyword search
-        """
-        # Create a map to merge results by content
-        combined_docs = {}
-        
-        # Process vector results
-        for doc in vector_results:
-            content_key = doc.get('content', '')[:100]  # Use first 100 chars as key
-            if content_key not in combined_docs:
-                combined_docs[content_key] = doc.copy()
-                combined_docs[content_key]['vector_score'] = doc.get('vector_score', 0)
-                combined_docs[content_key]['keyword_score'] = 0
-            else:
-                combined_docs[content_key]['vector_score'] = max(
-                    combined_docs[content_key]['vector_score'], 
-                    doc.get('vector_score', 0)
-                )
-        
-        # Process keyword results
-        for doc in keyword_results:
-            content_key = doc.get('content', '')[:100]
-            if content_key not in combined_docs:
-                combined_docs[content_key] = doc.copy()
-                combined_docs[content_key]['vector_score'] = 0
-                combined_docs[content_key]['keyword_score'] = doc.get('keyword_score', 0)
-            else:
-                combined_docs[content_key]['keyword_score'] = max(
-                    combined_docs[content_key]['keyword_score'], 
-                    doc.get('keyword_score', 0)
-                )
-        
-        # Normalize scores and calculate hybrid score
-        max_vector_score = max([doc['vector_score'] for doc in combined_docs.values()], default=1.0)
-        max_keyword_score = max([doc['keyword_score'] for doc in combined_docs.values()], default=1.0)
-        
-        for doc in combined_docs.values():
-            # Normalize scores
-            norm_vector_score = doc['vector_score'] / max_vector_score if max_vector_score > 0 else 0
-            norm_keyword_score = doc['keyword_score'] / max_keyword_score if max_keyword_score > 0 else 0
-            
-            # Calculate hybrid score
-            doc['hybrid_score'] = (
-                self.vector_weight * norm_vector_score + 
-                self.keyword_weight * norm_keyword_score
+            # Combine question and content for better search
+            text = f"{doc['question']} {doc['content']}"
+            llama_doc = Document(
+                text=text,
+                metadata={
+                    "question": doc['question'],
+                    "content": doc['content'],
+                    "source": doc.get('source', 'unknown'),
+                    "doc_id": doc.get('doc_id', 0)
+                }
             )
-            
-            # Add metadata for debugging
-            doc['norm_vector_score'] = norm_vector_score
-            doc['norm_keyword_score'] = norm_keyword_score
+            llama_docs.append(llama_doc)
         
-        # Sort by hybrid score and return top_k
-        results = list(combined_docs.values())
-        results.sort(key=lambda x: x['hybrid_score'], reverse=True)
+        # Split documents into nodes
+        splitter = SentenceSplitter(chunk_size=512)
+        nodes = splitter.get_nodes_from_documents(llama_docs)
         
-        return results[:top_k]
+        logger.info(f"Created {len(nodes)} nodes from {len(llama_docs)} documents")
+        
+        # Initialize docstore
+        _docstore = SimpleDocumentStore()
+        _docstore.add_documents(nodes)
+        
+        # Initialize BM25 retriever without stemmer for simplicity
+        _bm25_retriever = BM25Retriever.from_defaults(
+            docstore=_docstore,
+            similarity_top_k=5,
+        )
+        
+        _search_engine_initialized = True
+        logger.info("Search index initialized successfully!")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize search index: {e}")
+        return False
+
+
+def hybrid_search(query: str, limit: int = 5) -> List[Dict]:
+    """
+    Perform hybrid search combining BM25 keyword search and vector semantic search
     
-    def search(self, query: str, limit: int = 10, 
-               vector_limit: int = 15, keyword_limit: int = 15) -> List[Dict]:
-        """
-        Main hybrid search method
+    Args:
+        query: Search query
+        limit: Maximum number of results to return
         
-        Args:
-            query: Search query
-            limit: Final number of results to return
-            vector_limit: Number of results from vector search
-            keyword_limit: Number of results from keyword search
-            
-        Returns:
-            List of documents ranked by hybrid score
-        """
-        logger.info(f"Hybrid search for query: {query}")
+    Returns:
+        List of documents with hybrid scores
+    """
+    if not _search_engine_initialized or not _bm25_retriever:
+        logger.warning("Search engine not initialized, falling back to vector search only")
+        return vector_search_fallback(query, limit)
+    
+    try:
+        # 1. BM25 keyword search
+        bm25_results = _bm25_retriever.retrieve(query)
+        logger.info(f"BM25 search returned {len(bm25_results)} results")
         
-        # Perform both searches in parallel conceptually
-        vector_results = self.vector_search(query, vector_limit)
-        keyword_results = self.keyword_search(query, keyword_limit)
-        
+        # 2. Vector semantic search
+        vector = get_embedding(query)
+        vector_results = search_vector(DEFAULT_COLLECTION_NAME, vector, limit)
         logger.info(f"Vector search returned {len(vector_results)} results")
-        logger.info(f"Keyword search returned {len(keyword_results)} results")
         
-        # Combine results
-        combined_results = self.combine_results(vector_results, keyword_results, limit)
+        # 3. Combine and score results
+        combined_results = combine_search_results(bm25_results, vector_results, query)
         
-        logger.info(f"Hybrid search returning {len(combined_results)} results")
+        # 4. Sort by hybrid score and limit results
+        combined_results.sort(key=lambda x: x.get("hybrid_score", 0), reverse=True)
         
-        # Log top result for debugging
-        if combined_results:
-            top_result = combined_results[0]
-            logger.info(f"Top result - Hybrid: {top_result.get('hybrid_score', 0):.3f}, "
-                       f"Vector: {top_result.get('norm_vector_score', 0):.3f}, "
-                       f"Keyword: {top_result.get('norm_keyword_score', 0):.3f}")
+        logger.info(f"Hybrid search returned {len(combined_results[:limit])} final results")
+        return combined_results[:limit]
         
-        return combined_results
+    except Exception as e:
+        logger.error(f"Hybrid search failed: {e}, falling back to vector search")
+        return vector_search_fallback(query, limit)
 
 
-# Global search engine instance
-search_engine = HybridSearchEngine()
-
-
-def hybrid_search(query: str, limit: int = 10) -> List[Dict]:
+def vector_search_fallback(query: str, limit: int = 5) -> List[Dict]:
     """
-    Convenience function for hybrid search
-    """
-    return search_engine.search(query, limit)
-
-
-def initialize_search_index(documents: List[Dict]):
-    """
-    Initialize the search index with documents
-    Call this when loading documents into the system
-    """
-    search_engine.build_keyword_index(documents)
-
-
-def update_search_weights(vector_weight: float, keyword_weight: float):
-    """
-    Update search weights for tuning
-    """
-    total = vector_weight + keyword_weight
-    search_engine.vector_weight = vector_weight / total
-    search_engine.keyword_weight = keyword_weight / total
+    Fallback to pure vector search when BM25 is not available
     
-    logger.info(f"Updated search weights - Vector: {search_engine.vector_weight:.2f}, "
-               f"Keyword: {search_engine.keyword_weight:.2f}")
+    Args:
+        query: Search query
+        limit: Maximum number of results
+        
+    Returns:
+        List of documents
+    """
+    try:
+        vector = get_embedding(query)
+        results = search_vector(DEFAULT_COLLECTION_NAME, vector, limit)
+        
+        # Add search method metadata
+        for result in results:
+            result["search_method"] = "vector_fallback"
+            result["hybrid_score"] = result.get("similarity_score", 0)
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Vector search fallback failed: {e}")
+        return []
+
+
+def combine_search_results(bm25_results, vector_results, query: str) -> List[Dict]:
+    """
+    Combine BM25 and vector search results with hybrid scoring
+    
+    Args:
+        bm25_results: Results from BM25 search
+        vector_results: Results from vector search
+        query: Original query for scoring
+        
+    Returns:
+        List of combined documents with hybrid scores
+    """
+    # Convert BM25 results to dict format
+    bm25_docs = {}
+    for node in bm25_results:
+        content = node.node.text if hasattr(node.node, 'text') else str(node.node)
+        content_hash = hash(content)
+        
+        bm25_docs[content_hash] = {
+            "content": content,
+            "question": node.node.metadata.get("question", ""),
+            "source": node.node.metadata.get("source", "unknown"),
+            "doc_id": node.node.metadata.get("doc_id", 0),
+            "bm25_score": node.score,
+            "search_method": "bm25"
+        }
+    
+    # Convert vector results to dict format
+    vector_docs = {}
+    for doc in vector_results:
+        content = doc.get("content", "")
+        content_hash = hash(content)
+        
+        vector_docs[content_hash] = {
+            "content": content,
+            "question": doc.get("question", ""),
+            "source": doc.get("source", "unknown"),
+            "doc_id": doc.get("doc_id", 0),
+            "vector_score": doc.get("similarity_score", 0),
+            "search_method": "vector"
+        }
+    
+    # Combine results
+    all_docs = {}
+    
+    # Add BM25 results
+    for content_hash, doc in bm25_docs.items():
+        all_docs[content_hash] = doc
+    
+    # Add vector results and merge if overlap
+    for content_hash, doc in vector_docs.items():
+        if content_hash in all_docs:
+            # Merge scores for documents found by both methods
+            all_docs[content_hash]["vector_score"] = doc["vector_score"]
+            all_docs[content_hash]["search_method"] = "hybrid"
+        else:
+            all_docs[content_hash] = doc
+    
+    # Calculate hybrid scores
+    for doc in all_docs.values():
+        bm25_score = doc.get("bm25_score", 0)
+        vector_score = doc.get("vector_score", 0)
+        
+        # Simple hybrid scoring: weighted combination
+        # Give equal weight to both methods, boost if found by both
+        if doc["search_method"] == "hybrid":
+            doc["hybrid_score"] = (bm25_score * 0.5) + (vector_score * 0.5) + 0.1  # Bonus for being in both
+        elif doc["search_method"] == "bm25":
+            doc["hybrid_score"] = bm25_score * 0.6  # Slightly lower weight for BM25 only
+        else:  # vector only
+            doc["hybrid_score"] = vector_score * 0.6  # Slightly lower weight for vector only
+    
+    return list(all_docs.values())
+
+
+def search_engine() -> bool:
+    """
+    Alias for backward compatibility
+    """
+    return _search_engine_initialized
+
+
+def get_search_stats() -> Dict:
+    """
+    Get search engine statistics
+    
+    Returns:
+        Dict with search engine status and stats
+    """
+    return {
+        "initialized": _search_engine_initialized,
+        "has_docstore": _docstore is not None,
+        "has_bm25": _bm25_retriever is not None,
+        "docstore_size": len(_docstore.docs) if _docstore else 0
+    }
+
+
