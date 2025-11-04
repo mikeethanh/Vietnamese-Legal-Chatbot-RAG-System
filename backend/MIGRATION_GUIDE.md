@@ -6,7 +6,7 @@
 
 1. **Database Schema**: Đổi column `title` → `question` trong table `document`
 2. **Code Changes**: Cập nhật tất cả references từ `title` → `question`
-3. **Import Script**: Tạo script để import dữ liệu từ `train_qa_format.jsonl` vào Qdrant
+3. **Import Script**: Tạo script để import dữ liệu từ `train.jsonl` vào Qdrant
 
 ## Bước 1: Migration Database
 
@@ -49,13 +49,13 @@ docker logs -f chatbot-api
 docker logs -f chatbot-worker
 ```
 
-## Bước 3: Import dữ liệu từ train_qa_format.jsonl vào Qdrant
+## Bước 3: Import dữ liệu từ train.jsonl vào Qdrant
 
 ### Cách 1: Chạy script trong container
 
 ```bash
 # Copy dữ liệu vào container (nếu chưa mount)
-docker cp /home/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System/data_pipeline/data/finetune_data/train_qa_format.jsonl chatbot-api:/usr/src/app/data/
+docker cp /home/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System/data_pipeline/data/rag/train.jsonl chatbot-api:/usr/src/app/data/
 
 # Chạy import script
 docker exec -it chatbot-api bash /usr/src/app/import_data.sh
@@ -64,7 +64,7 @@ docker exec -it chatbot-api bash /usr/src/app/import_data.sh
 ### Cách 2: Chạy trực tiếp Python script
 
 ```bash
-docker exec -it chatbot-api python /usr/src/app/src/import_data.py --data-file /usr/src/app/data/train_qa_format.jsonl --collection llm --batch-size 100
+docker exec -it chatbot-api python /usr/src/app/src/import_data.py --data-file /usr/src/app/data/train.jsonl --collection llm --batch-size 50 --limit 1000
 ```
 
 ### Cách 3: Sử dụng API endpoint
@@ -140,7 +140,7 @@ CREATE TABLE document (
 {
     "question": "Trong Bộ luật Hình sự thì bao nhiêu tuổi...",
     "content": "Người cao tuổi, người già...",
-    "source": "train_qa_format",
+    "source": "train",
     "doc_id": 0
 }
 ```
@@ -152,15 +152,18 @@ CREATE TABLE document (
    docker exec mariadb-tiny mysqldump -u root -p demo_bot > backup.sql
    ```
 
-2. **Mount data_pipeline**: Đảm bảo folder `data_pipeline` được mount vào container hoặc copy file vào:
-   ```yaml
-   # Trong docker-compose.yml
+2. **Mount data hoặc copy file**: Đảm bảo file `train.jsonl` có thể truy cập từ container:
+   ```bash
+   # Cách 1: Copy file vào container
+   docker cp /home/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System/data_pipeline/data/rag/train.jsonl chatbot-api:/usr/src/app/data/
+   
+   # Cách 2: Mount folder trong docker-compose.yml
    volumes:
      - .:/usr/src/app/
-     - ../data_pipeline:/usr/src/app/data_pipeline
+     - ../data_pipeline/data:/usr/src/app/data_pipeline
    ```
 
-3. **Memory & Performance**: File `train_qa_format.jsonl` có ~19,537 dòng. Import sẽ mất thời gian. Monitor:
+3. **Memory & Performance**: File `train.jsonl` có kích thước lớn (~133MB). Import sẽ mất thời gian. Nên sử dụng `--limit` để test trước. Monitor:
    ```bash
    docker stats chatbot-api
    docker logs -f chatbot-api
@@ -177,9 +180,10 @@ CREATE TABLE document (
 
 ```bash
 # Check file path
-docker exec -it chatbot-api ls -la /usr/src/app/../data_pipeline/data/finetune_data/
+docker exec -it chatbot-api ls -la /usr/src/app/data/
 
-# Adjust path trong import_data.py nếu cần
+# Copy file if needed
+docker cp /path/to/train.jsonl chatbot-api:/usr/src/app/data/
 ```
 
 ### Lỗi: Connection refused to Qdrant

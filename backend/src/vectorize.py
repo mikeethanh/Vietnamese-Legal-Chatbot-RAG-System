@@ -1,16 +1,16 @@
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    Distance, 
-    PointStruct, 
-    VectorParams, 
-    Filter, 
-    FieldCondition, 
+    Distance,
+    FieldCondition,
+    Filter,
     MatchValue,
+    PointStruct,
     Range,
-    SearchRequest
+    SearchRequest,
+    VectorParams,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ def create_collection(name, vector_size=1024):
 def add_vector(collection_name, vectors={}, batch_size=100):
     """
     Add vectors with improved batch processing and metadata support
-    
+
     Args:
         collection_name: Name of the collection
         vectors: Dict with structure {id: {"vector": [...], "payload": {...}}}
@@ -38,27 +38,27 @@ def add_vector(collection_name, vectors={}, batch_size=100):
     """
     if not vectors:
         return {"status": "no_vectors_provided"}
-    
+
     # Convert to points
     points = [
         PointStruct(
-            id=k, 
-            vector=v["vector"], 
+            id=k,
+            vector=v["vector"],
             payload={
                 **v["payload"],
                 # Add metadata for better filtering
                 "doc_length": len(v["payload"].get("content", "")),
                 "has_question": bool(v["payload"].get("question", "")),
                 "content_type": detect_content_type(v["payload"].get("content", "")),
-            }
+            },
         )
         for k, v in vectors.items()
     ]
-    
+
     # Process in batches for better performance
     results = []
     for i in range(0, len(points), batch_size):
-        batch = points[i:i + batch_size]
+        batch = points[i : i + batch_size]
         try:
             result = client.upsert(
                 collection_name=collection_name,
@@ -66,11 +66,13 @@ def add_vector(collection_name, vectors={}, batch_size=100):
                 points=batch,
             )
             results.append(result)
-            logger.info(f"Processed batch {i//batch_size + 1}/{(len(points)-1)//batch_size + 1}")
+            logger.info(
+                f"Processed batch {i//batch_size + 1}/{(len(points)-1)//batch_size + 1}"
+            )
         except Exception as e:
             logger.error(f"Failed to process batch {i//batch_size + 1}: {e}")
             results.append({"error": str(e)})
-    
+
     return results
 
 
@@ -79,7 +81,7 @@ def detect_content_type(content: str) -> str:
     Detect the type of legal content for better filtering
     """
     content_lower = content.lower()
-    
+
     if any(keyword in content_lower for keyword in ["luật", "bộ luật", "pháp luật"]):
         return "law"
     elif any(keyword in content_lower for keyword in ["nghị định", "quyết định"]):
@@ -97,14 +99,14 @@ def detect_content_type(content: str) -> str:
 def search_vector(collection_name, vector, limit=4, filters=None, score_threshold=0.3):
     """
     Enhanced vector search with filtering and scoring options
-    
+
     Args:
         collection_name: Name of the collection to search
         vector: Query vector
         limit: Maximum number of results
         filters: Optional filters dict {"field": "value"} or {"field": {"gte": value}}
         score_threshold: Minimum similarity score
-    
+
     Returns:
         List of documents with scores and metadata
     """
@@ -113,11 +115,16 @@ def search_vector(collection_name, vector, limit=4, filters=None, score_threshol
         filter_conditions = None
         if filters:
             conditions = []
-            
+
             for field, value in filters.items():
                 if isinstance(value, dict):
                     # Range filter
-                    if "gte" in value or "lte" in value or "gt" in value or "lt" in value:
+                    if (
+                        "gte" in value
+                        or "lte" in value
+                        or "gt" in value
+                        or "lt" in value
+                    ):
                         range_filter = Range()
                         if "gte" in value:
                             range_filter.gte = value["gte"]
@@ -127,26 +134,28 @@ def search_vector(collection_name, vector, limit=4, filters=None, score_threshol
                             range_filter.gt = value["gt"]
                         if "lt" in value:
                             range_filter.lt = value["lt"]
-                        
+
                         conditions.append(FieldCondition(key=field, range=range_filter))
                 else:
                     # Exact match filter
-                    conditions.append(FieldCondition(key=field, match=MatchValue(value=value)))
-            
+                    conditions.append(
+                        FieldCondition(key=field, match=MatchValue(value=value))
+                    )
+
             if conditions:
                 filter_conditions = Filter(must=conditions)
-        
+
         # Perform search
         results = client.search(
-            collection_name=collection_name, 
-            query_vector=vector, 
+            collection_name=collection_name,
+            query_vector=vector,
             limit=limit,
             query_filter=filter_conditions,
             score_threshold=score_threshold,
             with_payload=True,
-            with_vectors=False  # Don't return vectors to save bandwidth
+            with_vectors=False,  # Don't return vectors to save bandwidth
         )
-        
+
         # Process results
         processed_results = []
         for result in results:
@@ -154,12 +163,14 @@ def search_vector(collection_name, vector, limit=4, filters=None, score_threshol
             doc["similarity_score"] = result.score
             doc["search_rank"] = len(processed_results) + 1
             processed_results.append(doc)
-        
-        logger.info(f"Vector search returned {len(processed_results)} results "
-                   f"(filtered from {len(results)} candidates)")
-        
+
+        logger.info(
+            f"Vector search returned {len(processed_results)} results "
+            f"(filtered from {len(results)} candidates)"
+        )
+
         return processed_results
-        
+
     except Exception as e:
         logger.error(f"Vector search failed: {e}")
         return []
@@ -168,37 +179,37 @@ def search_vector(collection_name, vector, limit=4, filters=None, score_threshol
 def search_with_multiple_vectors(collection_name, vectors, limit=4, filters=None):
     """
     Search with multiple query vectors (for query expansion)
-    
+
     Args:
         collection_name: Name of the collection
         vectors: List of query vectors
         limit: Results per vector
         filters: Optional filters
-    
+
     Returns:
         Merged and deduplicated results
     """
     all_results = []
     seen_content_hashes = set()
-    
+
     for i, vector in enumerate(vectors):
         try:
             results = search_vector(collection_name, vector, limit, filters)
-            
+
             for result in results:
                 content_hash = hash(result.get("content", ""))
                 if content_hash not in seen_content_hashes:
                     seen_content_hashes.add(content_hash)
                     result["query_vector_index"] = i
                     all_results.append(result)
-        
+
         except Exception as e:
             logger.error(f"Search with vector {i} failed: {e}")
             continue
-    
+
     # Sort by best similarity score
     all_results.sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
-    
+
     return all_results[:limit]
 
 
@@ -227,9 +238,7 @@ def delete_vectors(collection_name, point_ids):
     """
     try:
         result = client.delete(
-            collection_name=collection_name,
-            points_selector=point_ids,
-            wait=True
+            collection_name=collection_name, points_selector=point_ids, wait=True
         )
         logger.info(f"Deleted {len(point_ids)} vectors from {collection_name}")
         return result
