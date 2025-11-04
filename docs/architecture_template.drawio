@@ -1,0 +1,163 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36" version="28.2.9">
+  <diagram name="Vietnamese Legal Chatbot Architecture" id="architecture">
+    <mxGraphModel dx="1705" dy="2167" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="userLayer" value="👤 USER INTERFACE LAYER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=16;fontStyle=1;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+          <mxGeometry x="45" y="-501" width="350" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="🌐 Web Browser&lt;br/&gt;(Streamlit Interface)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1976D2;" parent="1" vertex="1">
+          <mxGeometry x="210" y="-456" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="gatewayLayer" value="🌐 GATEWAY &amp; LOAD BALANCER LAYER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#5F6368;strokeColor=#37474F;fontColor=#FFFFFF;fontSize=16;fontStyle=1;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+          <mxGeometry x="7" y="205" width="1200" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="nginx" value="⚖️ Nginx&lt;br/&gt;Load Balancer&lt;br/&gt;Port: 80, 443" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECEFF1;strokeColor=#546E7A;" parent="1" vertex="1">
+          <mxGeometry x="80" y="240" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ssl" value="🔒 SSL/TLS&lt;br/&gt;Certificate&lt;br/&gt;HTTPS Termination" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECEFF1;strokeColor=#546E7A;" parent="1" vertex="1">
+          <mxGeometry x="260" y="240" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ratelimit" value="🚦 Rate Limiter&lt;br/&gt;Redis Backend&lt;br/&gt;100 req/min" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECEFF1;strokeColor=#546E7A;" parent="1" vertex="1">
+          <mxGeometry x="440" y="240" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="appLayer" value="⚙️ APPLICATION SERVICES LAYER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#34A853;strokeColor=#2E7D32;fontColor=#FFFFFF;fontSize=16;fontStyle=1;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+          <mxGeometry x="40" y="360" width="1200" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="fastapi" value="🚀 FastAPI Server&lt;br/&gt;Port: 8000&lt;br/&gt;3x Replicas&lt;br/&gt;Async Processing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E8;strokeColor=#4CAF50;" parent="1" vertex="1">
+          <mxGeometry x="80" y="400" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="streamlit" value="🎨 Streamlit App&lt;br/&gt;Port: 8501&lt;br/&gt;Chat Interface&lt;br/&gt;Real-time UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E8;strokeColor=#4CAF50;" parent="1" vertex="1">
+          <mxGeometry x="260" y="400" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="celery" value="⚡ Celery Worker&lt;br/&gt;Background Tasks&lt;br/&gt;Document Processing&lt;br/&gt;Redis Queue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E8;strokeColor=#4CAF50;" parent="1" vertex="1">
+          <mxGeometry x="440" y="400" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="auth" value="🔐 Auth Service&lt;br/&gt;JWT Tokens&lt;br/&gt;OAuth2&lt;br/&gt;User Management" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E8;strokeColor=#4CAF50;" parent="1" vertex="1">
+          <mxGeometry x="620" y="400" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="aiLayer" value="🧠 AI/ML INTELLIGENCE LAYER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FBBC04;strokeColor=#F57F17;fontColor=#000000;fontSize=16;fontStyle=1;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+          <mxGeometry x="40" y="560" width="1200" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="ragPipeline" value="🤖 RAG PIPELINE ENGINE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#FF8F00;fontSize=14;fontStyle=1;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+          <mxGeometry x="80" y="600" width="600" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="queryRewriter" value="📝 Query&lt;br/&gt;Rewriter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3C4;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="100" y="630" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="vectorSearch" value="🔍 Vector&lt;br/&gt;Search" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3C4;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="210" y="630" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="llmEngine" value="🧠 LLM&lt;br/&gt;Engine" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3C4;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="320" y="630" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="responseGen" value="💬 Response&lt;br/&gt;Generator" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3C4;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="430" y="630" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="reranker" value="🎯 Re-ranker&lt;br/&gt;Results Optimization" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3C4;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="540" y="630" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="gpt4" value="🤖 GPT-4/3.5&lt;br/&gt;OpenAI API&lt;br/&gt;Primary LLM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#FF8F00;" parent="1" vertex="1">
+          <mxGeometry x="720" y="600" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="bgeM3" value="🔤 BGE-M3&lt;br/&gt;Embedding Model&lt;br/&gt;Multilingual" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#FF8F00;" parent="1" vertex="1">
+          <mxGeometry x="860" y="600" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="legalTools" value="⚖️ Legal Tools&lt;br/&gt;Tavily Search&lt;br/&gt;Web Agents" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#FF8F00;" parent="1" vertex="1">
+          <mxGeometry x="1000" y="600" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="localLLM" value="🦙 LLaMA/Local&lt;br/&gt;Fallback Model&lt;br/&gt;Self-hosted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#FF8F00;opacity=70;" parent="1" vertex="1">
+          <mxGeometry x="720" y="680" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="dataLayer" value="💾 DATA &amp; STORAGE LAYER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FF6D00;strokeColor=#E65100;fontColor=#FFFFFF;fontSize=16;fontStyle=1;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+          <mxGeometry x="40" y="800" width="1200" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="postgresql" value="🐘 PostgreSQL&lt;br/&gt;Port: 5432&lt;br/&gt;User Metadata&lt;br/&gt;Chat History" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="80" y="840" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="chromadb" value="🔍 ChromaDB&lt;br/&gt;Port: 8001&lt;br/&gt;Vector Storage&lt;br/&gt;1.9M+ Documents" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="260" y="840" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="redis" value="⚡ Redis&lt;br/&gt;Port: 6379&lt;br/&gt;Cache &amp; Queue&lt;br/&gt;Session Store" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="440" y="840" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="minio" value="📦 MinIO/S3&lt;br/&gt;Object Storage&lt;br/&gt;Documents&lt;br/&gt;File Upload" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="620" y="840" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="monitoring" value="📊 Monitoring&lt;br/&gt;Prometheus&lt;br/&gt;Grafana&lt;br/&gt;Logs &amp; Metrics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#F57C00;" parent="1" vertex="1">
+          <mxGeometry x="800" y="840" width="150" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="externalLayer" value="🔴 EXTERNAL APIS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EA4335;strokeColor=#C62828;fontColor=#FFFFFF;fontSize=16;fontStyle=1;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+          <mxGeometry x="1320" y="200" width="200" height="400" as="geometry" />
+        </mxCell>
+        <mxCell id="openaiAPI" value="🤖 OpenAI API&lt;br/&gt;GPT Models&lt;br/&gt;Embeddings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#F44336;" parent="1" vertex="1">
+          <mxGeometry x="1340" y="240" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tavilyAPI" value="🔍 Tavily API&lt;br/&gt;Web Search&lt;br/&gt;Real-time Data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#F44336;" parent="1" vertex="1">
+          <mxGeometry x="1340" y="320" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="huggingface" value="🤗 HuggingFace&lt;br/&gt;Model Hub&lt;br/&gt;Embeddings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#F44336;" parent="1" vertex="1">
+          <mxGeometry x="1340" y="400" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="govAPI" value="🏛️ Government APIs&lt;br/&gt;Legal Updates&lt;br/&gt;Official Sources" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#F44336;" parent="1" vertex="1">
+          <mxGeometry x="1340" y="480" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="flow1" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=3;strokeColor=#1976D2;" parent="1" source="browser" target="nginx" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="155" y="160" as="sourcePoint" />
+            <mxPoint x="155" y="230" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="flow2" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=3;strokeColor=#4CAF50;" parent="1" source="nginx" target="fastapi" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="155" y="320" as="sourcePoint" />
+            <mxPoint x="155" y="390" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="flow3" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=3;strokeColor=#FF9800;" parent="1" source="fastapi" target="ragPipeline" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="155" y="500" as="sourcePoint" />
+            <mxPoint x="155" y="590" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="flow4" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=3;strokeColor=#FF6D00;" parent="1" source="vectorSearch" target="chromadb" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="255" y="680" as="sourcePoint" />
+            <mxPoint x="335" y="830" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ragFlow1" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#F57C00;" parent="1" source="queryRewriter" target="vectorSearch" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="200" y="650" as="sourcePoint" />
+            <mxPoint x="220" y="650" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ragFlow2" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#F57C00;" parent="1" source="vectorSearch" target="llmEngine" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="310" y="650" as="sourcePoint" />
+            <mxPoint x="330" y="650" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ragFlow3" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#F57C00;" parent="1" source="llmEngine" target="responseGen" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="420" y="650" as="sourcePoint" />
+            <mxPoint x="440" y="650" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="extFlow1" value="API Calls" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#F44336;dashed=1;" parent="1" source="llmEngine" target="openaiAPI" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="365" y="630" as="sourcePoint" />
+            <mxPoint x="1330" y="270" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend" value="📋 LEGEND&lt;br/&gt;&lt;br/&gt;🔵 User Interface&lt;br/&gt;⚫ Infrastructure&lt;br/&gt;🟢 Application&lt;br/&gt;🟡 AI/ML Services&lt;br/&gt;🟠 Data Storage&lt;br/&gt;🔴 External APIs&lt;br/&gt;&lt;br/&gt;─── Sync Calls&lt;br/&gt;┅┅┅ Async Calls" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#BDBDBD;fontSize=12;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+          <mxGeometry x="1320" y="640" width="200" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="metrics" value="⚡ PERFORMANCE&lt;br/&gt;&lt;br/&gt;Response Time: 2-5s&lt;br/&gt;Throughput: 100+ req/min&lt;br/&gt;Users: 50+ concurrent&lt;br/&gt;Uptime: 99.9%&lt;br/&gt;Vector Search: &lt;1s&lt;br/&gt;Documents: 1.9M+" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E8;strokeColor=#4CAF50;fontSize=12;verticalAlign=top;spacingTop=10;" parent="1" vertex="1">
+          <mxGeometry x="1320" y="860" width="200" height="120" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
