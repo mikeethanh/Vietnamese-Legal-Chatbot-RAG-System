@@ -2,9 +2,10 @@ import json
 import logging
 import os
 
-from custom_embedding import get_custom_embedding
 from openai import OpenAI
 from redis import InvalidResponse
+
+from custom_embedding import get_custom_embedding
 
 logger = logging.getLogger(__name__)
 
