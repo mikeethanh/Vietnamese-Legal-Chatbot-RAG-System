@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from brain import get_embedding
 from configs import DEFAULT_COLLECTION_NAME
+from search import initialize_search_index
 from splitter import split_document
 from utils import setup_logging
 from vectorize import add_vector, create_collection
@@ -21,23 +22,23 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 # Path to the data file
-DATA_FILE_PATH = (
-    "/usr/src/app/../data_pipeline/data/finetune_data/train_qa_format.jsonl"
-)
+DATA_FILE_PATH = "/usr/src/app/data/train.jsonl"
 
 
 def import_qa_data(
     data_file_path=DATA_FILE_PATH,
     collection_name=DEFAULT_COLLECTION_NAME,
-    batch_size=100,
+    batch_size=50,
+    limit=None,
 ):
     """
     Import Q&A data from JSONL file into Qdrant vector database
 
     Args:
-        data_file_path: Path to the train_qa_format.jsonl file
+        data_file_path: Path to the train.jsonl file (RAG format)
         collection_name: Name of the Qdrant collection
-        batch_size: Number of records to process before logging progress
+        batch_size: Number of vectors to process in each batch
+        limit: Maximum number of records to process (None for all)
     """
 
     # Check if file exists
@@ -48,6 +49,8 @@ def import_qa_data(
     logger.info(
         f"Starting import from {data_file_path} to collection {collection_name}"
     )
+    if limit:
+        logger.info(f"Limiting import to {limit} records")
 
     # Try to create collection (will fail if already exists, which is fine)
     try:
@@ -59,24 +62,40 @@ def import_qa_data(
     # Read and process the JSONL file
     success_count = 0
     error_count = 0
+    vectors_batch = {}  # Collect vectors for batch processing
+    total_vectors_processed = 0  # Track total vectors processed
+    documents_for_search = []  # Collect documents for search index
 
     with open(data_file_path, "r", encoding="utf-8") as f:
         for idx, line in enumerate(f):
+            # Check limit
+            if limit and idx >= limit:
+                logger.info(f"Reached limit of {limit} records, stopping")
+                break
+
             try:
                 # Parse JSON line
                 data = json.loads(line.strip())
                 question = data.get("question", "")
-                answer = data.get("answer", "")
+                context = data.get("context", "")  # Note: "context" thay vì "answer"
 
-                if not question or not answer:
+                if not question or not context:
                     logger.warning(
-                        f"Line {idx + 1}: Missing question or answer, skipping"
+                        f"Line {idx + 1}: Missing question or context, skipping"
                     )
                     error_count += 1
                     continue
 
-                # Combine question and answer for embedding
-                text = f"{question} {answer}"
+                # Store document for search index
+                documents_for_search.append({
+                    "question": question,
+                    "content": context,
+                    "source": "train",
+                    "doc_id": idx
+                })
+
+                # Combine question and context for embedding
+                text = f"{question} {context}"
 
                 # Split document into chunks if needed
                 nodes = split_document(text)
@@ -90,28 +109,32 @@ def import_qa_data(
                     # Get embedding
                     vector = get_embedding(node.text)
 
-                    # Add to Qdrant
-                    add_vector(
-                        collection_name=collection_name,
-                        vectors={
-                            point_id: {
-                                "vector": vector,
-                                "payload": {
-                                    "question": question,
-                                    "content": node.text,
-                                    "source": "train_qa_format",
-                                    "doc_id": idx,
-                                },
-                            }
+                    # Add to batch
+                    vectors_batch[point_id] = {
+                        "vector": vector,
+                        "payload": {
+                            "question": question,
+                            "content": node.text,
+                            "source": "train",  # Fixed source name
+                            "doc_id": idx,
                         },
-                    )
+                    }
 
                 success_count += 1
 
-                # Log progress every batch_size records
-                if (idx + 1) % batch_size == 0:
+                # Process batch when it reaches batch_size
+                if len(vectors_batch) >= batch_size:
+                    logger.info(f"Processing batch of {len(vectors_batch)} vectors...")
+                    add_vector(
+                        collection_name=collection_name,
+                        vectors=vectors_batch,
+                        batch_size=batch_size,
+                    )
+                    total_vectors_processed += len(vectors_batch)
+                    vectors_batch = {}  # Reset batch
+                    
                     logger.info(
-                        f"Processed {idx + 1} records - Success: {success_count}, Errors: {error_count}"
+                        f"Processed {total_vectors_processed} vectors total - Records: {success_count}, Errors: {error_count}"
                     )
 
             except json.JSONDecodeError as e:
@@ -121,9 +144,29 @@ def import_qa_data(
                 logger.error(f"Line {idx + 1}: Unexpected error - {e}")
                 error_count += 1
 
+    # Process remaining vectors in the final batch
+    if vectors_batch:
+        logger.info(f"Processing final batch of {len(vectors_batch)} vectors...")
+        add_vector(
+            collection_name=collection_name,
+            vectors=vectors_batch,
+            batch_size=batch_size,
+        )
+        total_vectors_processed += len(vectors_batch)
+
     logger.info(
-        f"Import completed! Total success: {success_count}, Total errors: {error_count}"
+        f"Import completed! Total vectors: {total_vectors_processed}, Records: {success_count}, Errors: {error_count}"
     )
+
+    # Initialize search index with collected documents
+    if documents_for_search:
+        logger.info(f"Initializing search index with {len(documents_for_search)} documents...")
+        try:
+            initialize_search_index(documents_for_search)
+            logger.info("Search index initialized successfully!")
+        except Exception as e:
+            logger.error(f"Failed to initialize search index: {e}")
+
     return True
 
 
@@ -136,7 +179,7 @@ def main():
         "--data-file",
         type=str,
         default=DATA_FILE_PATH,
-        help="Path to train_qa_format.jsonl file",
+        help="Path to train.jsonl file (RAG format)",
     )
     parser.add_argument(
         "--collection",
@@ -145,23 +188,34 @@ def main():
         help="Qdrant collection name",
     )
     parser.add_argument(
-        "--batch-size", type=int, default=100, help="Batch size for logging progress"
+        "--batch-size", 
+        type=int, 
+        default=50, 
+        help="Batch size for vector processing"
+    )
+    parser.add_argument(
+        "--limit", 
+        type=int, 
+        default=None, 
+        help="Limit number of records to process (for testing)"
     )
 
     args = parser.parse_args()
 
     logger.info("=" * 60)
-    logger.info("Starting Q&A Data Import")
+    logger.info("Starting RAG Data Import")
     logger.info("=" * 60)
     logger.info(f"Data file: {args.data_file}")
     logger.info(f"Collection: {args.collection}")
     logger.info(f"Batch size: {args.batch_size}")
+    logger.info(f"Limit: {args.limit or 'No limit'}")
     logger.info("=" * 60)
 
     success = import_qa_data(
         data_file_path=args.data_file,
         collection_name=args.collection,
         batch_size=args.batch_size,
+        limit=args.limit,
     )
 
     if success:

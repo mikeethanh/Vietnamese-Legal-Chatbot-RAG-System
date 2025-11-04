@@ -57,7 +57,7 @@ def retrieve_with_hybrid_search(queries: List[str], top_k: int = 5) -> List[Dict
 
     for query in queries:
         logger.info(f"Hybrid search for query: {query}")
-        
+
         # Use hybrid search instead of pure vector search
         docs = hybrid_search(query, limit=top_k)
 
@@ -76,7 +76,9 @@ def retrieve_with_hybrid_search(queries: List[str], top_k: int = 5) -> List[Dict
     return all_docs
 
 
-def retrieve_with_multi_query_fallback(queries: List[str], top_k: int = 5) -> List[Dict]:
+def retrieve_with_multi_query_fallback(
+    queries: List[str], top_k: int = 5
+) -> List[Dict]:
     """
     Fallback retrieval method using pure vector search
     Used when hybrid search is not available or fails
@@ -133,7 +135,7 @@ def bot_rag_answer_message(history, question):
     except Exception as e:
         logger.warning(f"Hybrid search failed, falling back to vector search: {e}")
         retrieved_docs = retrieve_with_multi_query_fallback(query_variations, top_k=4)
-    
+
     logger.info(f"Retrieved {len(retrieved_docs)} documents before reranking")
 
     # Step 4: Rerank documents based on relevance to the original question
