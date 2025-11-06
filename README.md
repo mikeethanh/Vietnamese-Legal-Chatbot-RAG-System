@@ -31,43 +31,7 @@ This system provides intelligent legal consultation services for Vietnamese user
 
 ## 🏗️ System Architecture
 
-```
-                    🌐 Internet
-                         │
-                ┌────────▼────────┐
-                │   Load Balancer │
-                │    (Nginx)      │
-                └────────┬────────┘
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-        ▼                ▼                ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│  Frontend   │ │   Backend   │ │Data Pipeline│
-│ (Streamlit) │ │  (FastAPI)  │ │   (Spark)   │
-└─────────────┘ └─────────────┘ └─────────────┘
-        │               │               │
-        └───────┬───────┴───────┬───────┘
-                │               │
-        ┌───────▼───────┐ ┌─────▼─────┐
-        │    Storage    │ │ AI Models │
-        │               │ │           │
-        │ ┌───────────┐ │ │ ┌───────┐ │
-        │ │PostgreSQL │ │ │ │  LLM  │ │
-        │ │(Metadata) │ │ │ │ GPT-4 │ │
-        │ └───────────┘ │ │ └───────┘ │
-        │               │ │           │
-        │ ┌───────────┐ │ │ ┌───────┐ │
-        │ │ ChromaDB  │ │ │ │Embed  │ │
-        │ │(Vectors)  │ │ │ │Models │ │
-        │ └───────────┘ │ │ └───────┘ │
-        │               │ │           │
-        │ ┌───────────┐ │ └───────────┘
-        │ │   Redis   │ │
-        │ │ (Cache)   │ │
-        │ └───────────┘ │
-        └───────────────┘
-```
+![System Architecture](asset%20/architecture_template.drawio.svg)
 
 ## 📁 Project Structure
 
@@ -77,71 +41,105 @@ Vietnamese-Legal-Chatbot-RAG-System/
 ├── 🖥️ backend/                    # Backend API service (FastAPI)
 │   ├── src/
 │   │   ├── app.py                # Main FastAPI application
-│   │   ├── brain.py              # LLM integration and chat logic
 │   │   ├── agent.py              # AI agent with tool calling
-│   │   ├── vectorize.py          # Vector database operations
-│   │   ├── database.py           # Database connections
-│   │   ├── models.py             # Pydantic data models
-│   │   ├── tasks.py              # Celery background tasks
+│   │   ├── brain.py              # LLM integration and chat logic
 │   │   ├── cache.py              # Redis caching utilities
 │   │   ├── configs.py            # Configuration management
+│   │   ├── custom_embedding.py   # Custom embedding models
+│   │   ├── database.py           # Database connections
+│   │   ├── import_data.py        # Data import utilities
 │   │   ├── legal_tools.py        # Legal-specific tools
+│   │   ├── models.py             # Pydantic data models
 │   │   ├── query_rewriter.py     # Query optimization
 │   │   ├── rerank.py             # Result re-ranking
+│   │   ├── search.py             # Search functionality
 │   │   ├── splitter.py           # Document text splitting
 │   │   ├── summarizer.py         # Text summarization
-│   │   ├── custom_embedding.py   # Custom embedding models
+│   │   ├── tasks.py              # Celery background tasks
 │   │   ├── tavily_tool.py        # Web search integration
-│   │   ├── import_data.py        # Data import utilities
-│   │   └── utils.py              # Utility functions
+│   │   ├── utils.py              # Utility functions
+│   │   └── vectorize.py          # Vector database operations
 │   ├── data/
-│   │   └── train_qa_format.jsonl # Training data
-│   ├── requirements.txt          # Python dependencies
-│   ├── Dockerfile               # Container configuration
+│   │   ├── train.jsonl          # Raw training data
+│   │   └── train_qa_format.jsonl # Formatted training data
 │   ├── docker-compose.yml       # Backend services
+│   ├── Dockerfile               # Container configuration
 │   ├── entrypoint.sh           # Container startup script
 │   ├── import_data.sh          # Data import script
+│   ├── migration_title_to_question.sql # Database migration
+│   ├── requirements.txt          # Python dependencies
+│   ├── 📚 AGENT_TOOLS_GUIDE.md  # Agent tools documentation
+│   ├── 📚 MIGRATION_GUIDE.md    # Migration guide
 │   └── 📚 README.md            # Backend documentation
 │
 ├── 🌐 frontend/                   # Web interface (Streamlit)
 │   ├── chat_interface.py        # Main chat application
 │   ├── config.toml             # Streamlit configuration
-│   ├── requirements.txt        # Python dependencies
-│   ├── Dockerfile              # Container configuration
 │   ├── docker-compose.yml      # Frontend services
-│   └── entrypoint.sh           # Container startup script
+│   ├── Dockerfile              # Container configuration
+│   ├── entrypoint.sh           # Container startup script
+│   └── requirements.txt        # Python dependencies
 │
 ├── 🔄 data_pipeline/             # Data processing pipeline
 │   ├── utils/                  # Processing utilities
 │   │   ├── download_embed_data.ipynb      # Download legal corpus
+│   │   ├── merge_instruction_data.py      # Merge instruction datasets
 │   │   ├── process_finetune_data.ipynb    # Process training data
-│   │   ├── process_finetune_data_2.ipynb  # ViLQA dataset
-│   │   └── process_finetune_data_3.ipynb  # Extended dataset
+│   │   ├── process_finetune_data_2.ipynb  # ViLQA dataset processing
+│   │   └── process_finetune_data_3.ipynb  # Extended dataset processing
 │   ├── data/                   # Raw and processed data
-│   │   ├── embed/              # Embedding data (law_vi.jsonl)
+│   │   ├── embed/              # Embedding data
 │   │   ├── finetune_data/      # Fine-tuning datasets
 │   │   ├── finetune_data2/     # ViLQA dataset
 │   │   ├── finetune_data3/     # Extended fine-tuning data
-│   │   └── finetune_rag/       # RAG-specific training data
+│   │   ├── finetune_llm/       # LLM fine-tuning data
+│   │   └── rag/                # RAG-specific data
 │   ├── requirements.txt        # Python dependencies
 │   └── 📚 README.md           # Pipeline documentation
 │
+├── 🤖 llm_finetuning_serving/    # LLM fine-tuning and serving
+│   ├── data_processing/        # Data processing for LLM
+│   │   ├── splits/             # Data splits
+│   │   ├── analyze_data.py     # Data analysis
+│   │   ├── data_analysis.json  # Analysis results
+│   │   ├── download_data.py    # Download datasets
+│   │   ├── process_llama_data.py # Process LLaMA data
+│   │   ├── processed_llama_data.jsonl # Processed data
+│   │   ├── sample_processed_data.json # Sample data
+│   │   └── split_data.py       # Split datasets
+│   ├── docker/                 # Docker configurations
+│   │   └── docker-compose.yml  # LLM serving containers
+│   ├── evaluation/             # Model evaluation
+│   │   └── evaluate_model.py   # Evaluation scripts
+│   ├── finetune/               # Fine-tuning scripts
+│   │   └── train_llama.py      # LLaMA training
+│   ├── serving/                # Model serving
+│   │   └── serve_model.py      # Model serving script
+│   ├── do_spaces_manager.py    # DigitalOcean Spaces manager
+│   ├── prepare_data.sh         # Data preparation script
+│   ├── requirements.txt        # Python dependencies
+│   ├── run_pipeline.sh         # Pipeline runner
+│   ├── test_api.py            # API testing
+│   ├── 📚 DEPLOYMENT_GUIDE.md  # Deployment guide
+│   ├── 📚 README.md           # LLM documentation
+│   └── 📚 SYSTEM_OVERVIEW.md  # System overview
+│
 ├── 🗄️ database/                  # Database setup
-│   ├── init.sql               # Initial database schema
 │   ├── docker-compose.yml     # Database services
+│   ├── init.sql               # Initial database schema
 │   └── 📚 README.md           # Database documentation
 │
 ├── 🚀 digital_ocean_setup/       # Cloud deployment
 │   ├── docker-compose.serving.yml  # Production deployment
 │   ├── Dockerfile.cpu-serving      # CPU serving container
 │   ├── Dockerfile.gpu-training     # GPU training container
-│   ├── serve_model.py             # Model serving script
-│   ├── train_embedding_gpu.py     # GPU training script
 │   ├── download_model_from_spaces.py  # Model download utility
 │   ├── requirements_gpu.txt       # GPU dependencies
 │   ├── requirements_serving.txt   # Serving dependencies
-│   ├── 📚 GPU_CPU_DEPLOYMENT_GUIDE.md  # Deployment guide
-│   └── 📚 API_USAGE.md           # API usage guide
+│   ├── serve_model.py             # Model serving script
+│   ├── train_embedding_gpu.py     # GPU training script
+│   ├── 📚 API_USAGE.md           # API usage guide
+│   └── 📚 GPU_CPU_DEPLOYMENT_GUIDE.md  # Deployment guide
 │
 ├── 🤖 models/                    # AI models and weights
 │   └── bge-m3/                  # BGE-M3 embedding model
@@ -150,12 +148,39 @@ Vietnamese-Legal-Chatbot-RAG-System/
 │       ├── tokenizer.json
 │       └── ...
 │
-├── 🧪 test/                      # Test suite
-│   ├── test_smoke.py           # Smoke tests
-│   └── evaluate_embedding_models.ipynb  # Model evaluation
+├── 🧪 tests/                     # Test suite
+│   ├── __init__.py             # Test package init
+│   ├── conftest.py             # Pytest configuration
+│   ├── test_api_simple.py      # Simple API tests
+│   ├── test_backend_utils.py   # Backend utility tests
+│   ├── test_basic.py           # Basic functionality tests
+│   ├── test_brain.py           # Brain module tests
+│   ├── test_utils.py           # Utility function tests
+│   └── 📚 TESTING_SUMMARY.md   # Testing documentation
 │
-├── 📋 requirements_dev.txt       # Development dependencies
-├── 📄 LICENSE                   # Project license
+├── 📝 docs/                      # Documentation
+│   └── architecture_drawio_template.md # Architecture template
+│   └── architecture_template.drawio    # Draw.io architecture file
+│   └── 📚 TESTING.md           # Testing documentation
+│
+├── 🗂️ scripts/                   # Build and utility scripts
+│   └── run_working_tests.sh    # Test runner script
+│
+├── 🎨 asset/                     # Assets and diagrams
+│   └── architecture_template.drawio.svg # System architecture diagram
+│
+├── .github/                     # GitHub workflows and templates
+├── .mypy_cache/                 # MyPy cache files
+├── .pytest_cache/               # Pytest cache files
+├── coverage.xml                 # Coverage report
+├── LICENSE                      # Project license
+├── Makefile                     # Build automation
+├── mypy.ini                     # MyPy configuration
+├── .pre-commit-config.yaml      # Pre-commit hooks
+├── pyproject.toml               # Python project configuration
+├── pytest.ini                  # Pytest configuration
+├── requirements_dev.txt         # Development dependencies
+├── setup.cfg                    # Setup configuration
 └── 📚 README.md                # This documentation
 ```
 
@@ -165,35 +190,49 @@ Vietnamese-Legal-Chatbot-RAG-System/
 - **FastAPI**: High-performance API framework with async support
 - **Celery**: Distributed queue for background task processing
 - **Redis**: Message broker and caching layer
-- **PostgreSQL**: Metadata and conversation history storage
-- **ChromaDB**: Vector database for document embeddings
+- **MySQL/PostgreSQL**: Metadata and conversation history storage
+- **QdrantDB**: Vector database for document embeddings
 - **Pydantic**: Data validation and serialization
+- **SQLAlchemy**: Database ORM
+- **Databases**: Async database support
 
 ### 🔄 Data Processing
-- **Apache Spark**: Large-scale data processing
+- **LlamaIndex**: Document indexing and retrieval framework
 - **Pandas**: Data manipulation and analysis
-- **Transformers (HuggingFace)**: Text embedding generation
 - **Sentence Transformers**: Specialized embedding models
-- **PyDeequ**: Data quality validation
+- **Custom Embedding Models**: Vietnamese-optimized embeddings
 
 ### 🤖 AI/ML
 - **OpenAI API**: GPT-3.5/4 for production
-- **LLaMA**: Open-source alternative
+- **LLaMA**: Open-source alternative for fine-tuning
 - **BGE-M3**: Multilingual embedding model
-- **Vietnamese LLMs**: Specialized models for Vietnamese
+- **Cohere**: Additional AI model support
 - **LangChain**: LLM application framework
+- **BM25**: Traditional text retrieval
 
 ### 🌐 Frontend
 - **Streamlit**: Interactive web application framework
 - **Python**: Core programming language
-- **HTML/CSS/JS**: Custom styling and interactions
+- **Tenacity**: Retry mechanism for API calls
 
 ### 🏗️ Infrastructure
 - **Docker**: Containerization
 - **Docker Compose**: Multi-container orchestration
-- **Nginx**: Load balancing and reverse proxy
-- **AWS S3/MinIO**: Object storage
-- **Digital Ocean**: Cloud hosting platform
+- **DigitalOcean**: Cloud hosting platform
+- **DigitalOcean Spaces**: Object storage
+
+### 🔍 Search & Integration
+- **Tavily**: Web search integration
+- **Google API**: Additional search capabilities
+- **Custom Search**: Legal document specific search
+
+### 🛠️ Development Tools
+- **MyPy**: Static type checking
+- **Pytest**: Testing framework
+- **Pre-commit**: Code quality hooks
+- **Black/isort**: Code formatting
+- **Coverage**: Test coverage analysis
+- **Makefile**: Build automation
 
 ## 🚀 Quick Start Guide
 
