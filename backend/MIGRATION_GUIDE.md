@@ -64,7 +64,7 @@ docker exec -it chatbot-api bash /usr/src/app/import_data.sh
 ### Cách 2: Chạy trực tiếp Python script
 
 ```bash
-docker exec -it chatbot-api python /usr/src/app/src/import_data.py --data-file /usr/src/app/data/train.jsonl --collection llm --batch-size 50 --limit 1000
+docker exec -it chatbot-api python /usr/src/app/src/import_data.py --data-file /usr/src/app/data/train.jsonl --collection llm --batch-size 5 --limit 10
 ```
 
 ### Cách 3: Sử dụng API endpoint

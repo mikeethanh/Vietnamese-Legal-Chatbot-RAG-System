@@ -37,8 +37,8 @@ def load_model():
     logger.info(f"📥 Loading model from: {model_path}")
 
     try:
-        # Force CPU usage
-        device = "cpu"
+        # Force GPU usage
+        device = "gpu"
         logger.info(f"💻 Using device: {device}")
 
         # Load model

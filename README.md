@@ -129,15 +129,14 @@ Vietnamese-Legal-Chatbot-RAG-System/
 │   ├── init.sql               # Initial database schema
 │   └── 📚 README.md           # Database documentation
 │
-├── 🚀 digital_ocean_setup/       # Cloud deployment
+├── 🚀 embed_serving/             # Model serving and deployment
 │   ├── docker-compose.serving.yml  # Production deployment
 │   ├── Dockerfile.cpu-serving      # CPU serving container
-│   ├── Dockerfile.gpu-training     # GPU training container
-│   ├── download_model_from_spaces.py  # Model download utility
-│   ├── requirements_gpu.txt       # GPU dependencies
+│   ├── GPU_CPU_DEPLOYMENT_GUIDE.md # Deployment guide
 │   ├── requirements_serving.txt   # Serving dependencies
-│   ├── serve_model.py             # Model serving script
-│   ├── train_embedding_gpu.py     # GPU training script
+│   └── scripts/                   # Serving scripts
+│       ├── download_model_from_spaces.py  # Model download utility
+│       └── serve_model.py         # Model serving script
 │   ├── 📚 API_USAGE.md           # API usage guide
 │   └── 📚 GPU_CPU_DEPLOYMENT_GUIDE.md  # Deployment guide
 │
@@ -539,7 +538,7 @@ PINECONE_API_KEY=your-pinecone-key
 ### ☁️ Digital Ocean Deployment
 ```bash
 # Detailed deployment guide
-cd digital_ocean_setup
+cd embed_serving
 cat GPU_CPU_DEPLOYMENT_GUIDE.md
 
 # Quick production deploy
@@ -681,8 +680,8 @@ docker-compose -f docker-compose.debug.yml up
 - **[Backend API Documentation](backend/README.md)** - Detailed backend implementation
 - **[Data Pipeline Guide](data_pipeline/README.md)** - Comprehensive data processing
 - **[Database Schema](database/README.md)** - Database design and migrations
-- **[Deployment Guide](digital_ocean_setup/GPU_CPU_DEPLOYMENT_GUIDE.md)** - Production deployment
-- **[API Usage Examples](digital_ocean_setup/API_USAGE.md)** - API usage patterns
+- **[Deployment Guide](embed_serving/GPU_CPU_DEPLOYMENT_GUIDE.md)** - Production deployment
+- **[API Usage Examples](embed_serving/API_USAGE.md)** - API usage patterns
 
 ### 🎓 Tutorials
 - **Setup Development Environment**: `docs/tutorials/dev-setup.md`

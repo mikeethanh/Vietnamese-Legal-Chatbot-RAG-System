@@ -43,11 +43,17 @@ def import_qa_data(
 
     # Check if file exists
     if not os.path.exists(data_file_path):
-        logger.error(f"Data file not found: {data_file_path}")
+        logger.error(f"❌ Data file not found: {data_file_path}")
         return False
 
+    logger.info(f"✅ Data file found: {data_file_path}")
+    
+    # Get file size for progress tracking
+    file_size = os.path.getsize(data_file_path)
+    logger.info(f"📊 File size: {file_size / (1024*1024):.2f} MB")
+
     logger.info(
-        f"Starting import from {data_file_path} to collection {collection_name}"
+        f"🚀 Starting import from {data_file_path} to collection {collection_name}"
     )
     if limit:
         logger.info(f"Limiting import to {limit} records")
@@ -55,10 +61,12 @@ def import_qa_data(
     # Try to create collection (will fail if already exists, which is fine)
     try:
         create_collection(collection_name)
-        logger.info(f"Created collection: {collection_name}")
+        logger.info(f"✅ Created collection: {collection_name}")
     except Exception as e:
-        logger.info(f"Collection {collection_name} might already exist: {e}")
+        logger.info(f"📋 Collection {collection_name} might already exist: {e}")
 
+    logger.info("🔄 Starting to read JSONL file...")
+    
     # Read and process the JSONL file
     success_count = 0
     error_count = 0
@@ -66,11 +74,19 @@ def import_qa_data(
     total_vectors_processed = 0  # Track total vectors processed
     documents_for_search = []  # Collect documents for search index
 
+    logger.info(f"📖 Opening file: {data_file_path}")
+    
     with open(data_file_path, "r", encoding="utf-8") as f:
+        logger.info("📄 File opened successfully, starting line-by-line processing...")
+        
         for idx, line in enumerate(f):
+            # Add progress logging every 50 lines
+            if idx % 50 == 0:
+                logger.info(f"📊 Processing line {idx + 1}...")
+                
             # Check limit
             if limit and idx >= limit:
-                logger.info(f"Reached limit of {limit} records, stopping")
+                logger.info(f"🛑 Reached limit of {limit} records, stopping")
                 break
 
             try:
@@ -81,10 +97,14 @@ def import_qa_data(
 
                 if not question or not context:
                     logger.warning(
-                        f"Line {idx + 1}: Missing question or context, skipping"
+                        f"⚠️ Line {idx + 1}: Missing question or context, skipping"
                     )
                     error_count += 1
                     continue
+
+                # Debug first few records
+                if idx < 3:
+                    logger.info(f"📝 Sample record {idx + 1}: Q='{question[:50]}...', C='{context[:50]}...'")
 
                 # Store document for search index
                 documents_for_search.append({
@@ -124,7 +144,7 @@ def import_qa_data(
 
                 # Process batch when it reaches batch_size
                 if len(vectors_batch) >= batch_size:
-                    logger.info(f"Processing batch of {len(vectors_batch)} vectors...")
+                    logger.info(f"🔄 Processing batch of {len(vectors_batch)} vectors...")
                     add_vector(
                         collection_name=collection_name,
                         vectors=vectors_batch,
@@ -134,7 +154,7 @@ def import_qa_data(
                     vectors_batch = {}  # Reset batch
                     
                     logger.info(
-                        f"Processed {total_vectors_processed} vectors total - Records: {success_count}, Errors: {error_count}"
+                        f"✅ Processed {total_vectors_processed} vectors total - Records: {success_count}, Errors: {error_count}"
                     )
 
             except json.JSONDecodeError as e:
@@ -146,7 +166,7 @@ def import_qa_data(
 
     # Process remaining vectors in the final batch
     if vectors_batch:
-        logger.info(f"Processing final batch of {len(vectors_batch)} vectors...")
+        logger.info(f"🔄 Processing final batch of {len(vectors_batch)} vectors...")
         add_vector(
             collection_name=collection_name,
             vectors=vectors_batch,
@@ -154,19 +174,27 @@ def import_qa_data(
         )
         total_vectors_processed += len(vectors_batch)
 
+    logger.info("🎯 REACHED END OF PROCESSING LOOP!")
     logger.info(
-        f"Import completed! Total vectors: {total_vectors_processed}, Records: {success_count}, Errors: {error_count}"
+        f"📊 Import completed! Total vectors: {total_vectors_processed}, Records: {success_count}, Errors: {error_count}"
     )
 
     # Initialize search index with collected documents
     if documents_for_search:
-        logger.info(f"Initializing search index with {len(documents_for_search)} documents...")
+        logger.info(f"🔍 STARTING SEARCH INDEX INITIALIZATION with {len(documents_for_search)} documents...")
         try:
-            initialize_search_index(documents_for_search)
-            logger.info("Search index initialized successfully!")
+            success = initialize_search_index(documents_for_search)
+            if success:
+                logger.info("✅ Search index initialized successfully!")
+            else:
+                logger.error("❌ Search index initialization returned False")
         except Exception as e:
-            logger.error(f"Failed to initialize search index: {e}")
+            logger.error(f"❌ Failed to initialize search index: {e}")
+            logger.exception("Full error traceback:")
+    else:
+        logger.warning("⚠️ No documents collected for search index!")
 
+    logger.info("🏁 IMPORT FUNCTION COMPLETED!")
     return True
 
 
