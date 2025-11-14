@@ -14,6 +14,14 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from contextlib import asynccontextmanager
 
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("Warning: python-dotenv not installed. Environment variables from .env file will not be loaded.")
+    print("Install with: pip install python-dotenv")
+
 # Import DO Spaces manager
 import sys
 sys.path.append('..')
@@ -78,10 +86,12 @@ def load_model_cpu():
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             torch_dtype=torch.float32,  # Use float32 for CPU
-            device_map="cpu",
             low_cpu_mem_usage=True,
             trust_remote_code=True
         )
+        
+        # Ensure model is on CPU
+        model = model.to('cpu')
         
         # Set model to evaluation mode
         model.eval()

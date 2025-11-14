@@ -231,6 +231,9 @@ print('Using CPU for inference - No GPU required!')
 "
 
 # Start serving on CPU (recommended for cost-effective deployment)
+# First, install missing packages
+pip install python-dotenv accelerate
+
 python3 serve_model_cpu.py
 
 # Expected output:
@@ -246,72 +249,26 @@ python3 serve_model_cpu.py
 # python3 serve_model.py
 ```
 
-### 3.5 Configure Auto-Start Service (Optional)
+**Hoặc dùng AWS CLI:**
 
 ```bash
-# Create systemd service for auto-start
-sudo nano /etc/systemd/system/vietnamese-legal-llm.service
+# Get Security Group ID
+aws ec2 describe-instances --instance-ids i-0cb01bbedb63c5a0d \
+  --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId'
+
+# Add rules (thay YOUR_SG_ID)
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-05658de3373a66057 \
+  --protocol tcp \
+  --port 5001 \
+  --cidr 0.0.0.0/0
 ```
-
-**Service file content:**
-
-```ini
-[Unit]
-Description=Vietnamese Legal LLM Serving Service
-After=network.target
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/Vietnamese-Legal-Chatbot-RAG-System/llm_finetuning_serving/serving
-Environment=MODEL_PATH=/home/ubuntu/model
-Environment=CUDA_VISIBLE_DEVICES=0
-Environment=PATH=/home/ubuntu/Vietnamese-Legal-Chatbot-RAG-System/llm_finetuning_serving/venv/bin:/usr/bin:/bin
-ExecStart=/home/ubuntu/Vietnamese-Legal-Chatbot-RAG-System/llm_finetuning_serving/venv/bin/python3 serve_model.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-# Enable and start service
-sudo systemctl daemon-reload
-sudo systemctl enable vietnamese-legal-llm
-sudo systemctl start vietnamese-legal-llm
-
-# Check service status
-sudo systemctl status vietnamese-legal-llm
-
-# View logs
-sudo journalctl -u vietnamese-legal-llm -f
-```
-
-### 3.6 CPU vs GPU Performance Comparison
-
-**Performance Characteristics:**
-
-| Aspect               | CPU Serving              | GPU Serving           |
-| -------------------- | ------------------------ | --------------------- |
-| **Cost**             | $122-490/month           | $380-1440/month       |
-| **Inference Speed**  | 10-30 seconds            | 1-5 seconds           |
-| **Memory Usage**     | 8-32GB RAM               | 16GB+ VRAM            |
-| **Setup Complexity** | Simple                   | Moderate (drivers)    |
-| **Use Cases**        | Development, Low-traffic | Production, Real-time |
-| **Scalability**      | Horizontal scaling       | Vertical + Horizontal |
-
-**Recommendation:**
-
-- **Start with CPU** for development and cost-effective production
-- **Upgrade to GPU** when response time becomes critical
-- **Use Spot Instances** for both to save 60-90% costs
 
 ### 3.7 Test API
 
 ```bash
 # From another terminal or local machine
-curl -X POST http://your-ec2-public-ip:7000/v1/chat/completions \
+curl -X POST http://:7000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [
@@ -322,7 +279,7 @@ curl -X POST http://your-ec2-public-ip:7000/v1/chat/completions \
   }'
 
 # Test health endpoint
-curl http://your-ec2-public-ip:7000/health
+curl http://:7000/health
 
 # Test from local Python
 python3 -c "
