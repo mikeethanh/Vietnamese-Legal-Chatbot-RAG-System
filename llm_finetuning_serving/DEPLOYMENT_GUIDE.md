@@ -112,29 +112,40 @@ ls -la data_processing/splits/
 
 ## 🌐 Part 3: Serving on AWS EC2
 
-### 3.1 Create AWS EC2 GPU Instance
+### 3.1 Create AWS EC2 Instance
 
 **Recommended Instance Types:**
 
+**GPU Instances (High Performance):**
+
 - **For Production**: `g5.xlarge` (1 GPU, 4 vCPUs, 16GB RAM) - ~$1.006/hour
 - **For High Performance**: `g5.2xlarge` (1 GPU, 8 vCPUs, 32GB RAM) - ~$2.013/hour
-- **For Cost-Effective**: `g4dn.xlarge` (1 GPU, 4 vCPUs, 16GB RAM) - ~$0.526/hour
+- **For Cost-Effective GPU**: `g4dn.xlarge` (1 GPU, 4 vCPUs, 16GB RAM) - ~$0.526/hour
 - **For Heavy Workloads**: `p3.2xlarge` (1 V100 GPU, 8 vCPUs, 61GB RAM) - ~$3.06/hour
+
+**CPU Instances (Cost-Effective):**
+
+- **For Development**: `c5.xlarge` (4 vCPUs, 8GB RAM) - ~$0.17/hour
+- **For Production**: `c5.2xlarge` (8 vCPUs, 16GB RAM) - ~$0.34/hour
+- **For Heavy CPU**: `c5.4xlarge` (16 vCPUs, 32GB RAM) - ~$0.68/hour
+- **Memory Optimized**: `r5.xlarge` (4 vCPUs, 32GB RAM) - ~$0.252/hour
 
 **Launch Configuration:**
 
-1. **AMI**: Deep Learning AMI GPU PyTorch 2.1.0 (Ubuntu 22.04)
-2. **Instance Type**: g5.xlarge (recommended for serving)
+1. **AMI**:
+   - **For GPU**: Deep Learning AMI GPU PyTorch 2.1.0 (Ubuntu 22.04)
+   - **For CPU**: Ubuntu Server 22.04 LTS
+2. **Instance Type**: Choose based on your performance/cost needs
 3. **Key Pair**: Select your existing key pair or create new one
 4. **Security Group**: Allow SSH (22), HTTP (80), HTTPS (443), Custom (7000)
-5. **Storage**: 100GB gp3 SSD minimum
+5. **Storage**: 50GB gp3 SSD minimum (CPU), 100GB gp3 SSD (GPU)
 6. **Region**: Choose based on your target audience (us-east-1 recommended)
 
 ### 3.2 Setup EC2 Instance
 
 ```bash
 # SSH into EC2 instance
-ssh -i "minh.pem" ubuntu@44.192.45.144
+ssh -i "minh.pem" ubuntu@54.87.128.17
 
 # Update system
 sudo apt update && sudo apt upgrade -y
@@ -152,7 +163,7 @@ source venv/bin/activate
 
 # Install requirements
 pip install --upgrade pip
-pip install -r requirements_serving.txt
+pip install -r requirements_serving_cpu.txt
 
 # Install additional AWS-specific packages
 pip install boto3 awscli
@@ -189,6 +200,9 @@ PORT=7000
 # Create model directory
 mkdir -p /home/ubuntu/model
 
+# Make script executable
+chmod +x ./run_pipeline.sh
+
 # Download specific model from Digital Ocean Spaces
 ./run_pipeline.sh download-model vietnamese-legal-llama-20251111_115138 /home/ubuntu/model
 
@@ -198,18 +212,38 @@ ls -la /home/ubuntu/model/
 # Set up serving environment
 cd serving
 export MODEL_PATH="/home/ubuntu/model"
-export CUDA_VISIBLE_DEVICES=0
 
-# Test GPU availability in Python
-python3 -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}')"
+# For CPU serving:
+export USE_GPU=false
+export DEVICE=cpu
 
-# Start serving
-python3 serve_model.py
+# For GPU serving (uncomment if using GPU instance):
+# export USE_GPU=true
+# export DEVICE=cuda
+# export CUDA_VISIBLE_DEVICES=0
+
+# Test device availability
+python3 -c "
+import torch
+print(f'PyTorch version: {torch.__version__}')
+print(f'CPU cores available: {torch.get_num_threads()}')
+print('Using CPU for inference - No GPU required!')
+"
+
+# Start serving on CPU (recommended for cost-effective deployment)
+python3 serve_model_cpu.py
 
 # Expected output:
-# Loading model from /home/ubuntu/model...
-# Model loaded successfully on GPU
-# Server running on http://0.0.0.0:7000
+# Loading model from /home/ubuntu/model for CPU inference...
+# Model loaded successfully on CPU!
+# Model parameters: 8,030,261,248
+# Starting server on 0.0.0.0:7000
+
+# Alternative: For GPU serving (if using GPU instance)
+# export USE_GPU=true
+# export DEVICE=cuda
+# export CUDA_VISIBLE_DEVICES=0
+# python3 serve_model.py
 ```
 
 ### 3.5 Configure Auto-Start Service (Optional)
@@ -254,7 +288,26 @@ sudo systemctl status vietnamese-legal-llm
 sudo journalctl -u vietnamese-legal-llm -f
 ```
 
-### 3.6 Test API
+### 3.6 CPU vs GPU Performance Comparison
+
+**Performance Characteristics:**
+
+| Aspect               | CPU Serving              | GPU Serving           |
+| -------------------- | ------------------------ | --------------------- |
+| **Cost**             | $122-490/month           | $380-1440/month       |
+| **Inference Speed**  | 10-30 seconds            | 1-5 seconds           |
+| **Memory Usage**     | 8-32GB RAM               | 16GB+ VRAM            |
+| **Setup Complexity** | Simple                   | Moderate (drivers)    |
+| **Use Cases**        | Development, Low-traffic | Production, Real-time |
+| **Scalability**      | Horizontal scaling       | Vertical + Horizontal |
+
+**Recommendation:**
+
+- **Start with CPU** for development and cost-effective production
+- **Upgrade to GPU** when response time becomes critical
+- **Use Spot Instances** for both to save 60-90% costs
+
+### 3.7 Test API
 
 ```bash
 # From another terminal or local machine
@@ -461,7 +514,24 @@ sudo netstat -tlnp | grep 7000
 curl localhost:7000/health
 ```
 
-**6. Performance Optimization**
+**6. CPU Serving Specific Issues**
+
+```bash
+# Memory issues with CPU serving
+free -h
+# Increase swap if needed
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# Slow CPU performance
+htop  # Check CPU utilization
+# Consider upgrading to higher CPU instance
+# Or add more concurrent workers
+```
+
+**7. Performance Optimization**
 
 ```bash
 # Monitor GPU utilization
@@ -486,10 +556,24 @@ htop
 
 **Serving Strategy (AWS EC2):**
 
-- **g4dn.xlarge**: ~$380/month (cost-effective option)
+**CPU Instances (Most Cost-Effective):**
+
+- **c5.xlarge**: ~$122/month (development)
+- **c5.2xlarge**: ~$245/month (production)
+- **c5.4xlarge**: ~$490/month (high-performance CPU)
+- **r5.xlarge**: ~$181/month (memory optimized)
+
+**GPU Instances (High Performance):**
+
+- **g4dn.xlarge**: ~$380/month (cost-effective GPU)
 - **g5.xlarge**: ~$720/month (balanced performance)
 - **g5.2xlarge**: ~$1,440/month (high performance)
-- Use Spot Instances for 60-90% cost savings (non-critical workloads)
+
+**Cost Comparison:**
+
+- **CPU Serving**: 70-90% cost savings vs GPU, slower inference (10-30s)
+- **GPU Serving**: Higher cost, fast inference (1-5s)
+- Use Spot Instances for 60-90% additional cost savings
 
 **AWS Cost-Saving Tips:**
 

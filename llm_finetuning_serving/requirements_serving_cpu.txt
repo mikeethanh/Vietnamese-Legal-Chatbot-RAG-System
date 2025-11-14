@@ -1,0 +1,33 @@
+# CPU-optimized requirements for Vietnamese Legal LLM serving
+# This file contains dependencies without Unsloth for CPU-only inference
+
+# Core ML libraries
+torch>=2.0.0
+transformers>=4.35.0
+accelerate>=0.24.0
+tokenizers>=0.14.0
+
+# FastAPI and web server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.4.0
+
+# HTTP and networking
+httpx>=0.25.0
+requests>=2.31.0
+
+# Data processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Logging and monitoring
+python-multipart>=0.0.6
+
+# Digital Ocean Spaces (S3-compatible)
+boto3>=1.34.0
+
+# Optional: Performance monitoring
+psutil>=5.9.0
+
+# Development and debugging
+python-dotenv>=1.0.0
