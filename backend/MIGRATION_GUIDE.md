@@ -55,7 +55,17 @@ docker logs -f chatbot-worker
 
 ```bash
 # Copy dữ liệu vào container (nếu chưa mount)
-docker cp /home/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System/data_pipeline/data/rag/train.jsonl chatbot-api:/usr/src/app/data/
+# Linux/Mac:
+# docker cp /home/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System/data_pipeline/data/rag/train.jsonl chatbot-api:/usr/src/app/data/
+
+# Windows - Cách 1: Sử dụng forward slash
+docker cp "D:/project/project_1/Vietnamese-Legal-Chatbot-RAG-System-main/data_pipeline/data/rag/train.jsonl" chatbot-api:/tmp/
+docker exec -it --user root chatbot-api mv /tmp/train.jsonl /usr/src/app/data/
+
+# Windows - Cách 2: Chuyển vào thư mục trước
+# cd /d "D:\project\project_1\Vietnamese-Legal-Chatbot-RAG-System-main\data_pipeline\data\rag"
+# docker cp train.jsonl chatbot-api:/tmp/
+# docker exec -it --user root chatbot-api mv /tmp/train.jsonl /usr/src/app/data/
 
 # Chạy import script
 docker exec -it chatbot-api bash /usr/src/app/import_data.sh
@@ -64,7 +74,7 @@ docker exec -it chatbot-api bash /usr/src/app/import_data.sh
 ### Cách 2: Chạy trực tiếp Python script
 
 ```bash
-docker exec -it chatbot-api python /usr/src/app/src/import_data.py --data-file /usr/src/app/data/train.jsonl --collection llm-test --batch-size 2 --limit 5
+docker exec -it chatbot-api python /usr/src/app/src/import_data.py --data-file /usr/src/app/data/train.jsonl --collection llm --batch-size 50 --limit 20000
 ```
 
 ### Cách 3: Sử dụng API endpoint
@@ -81,6 +91,7 @@ async def import_qa_data_endpoint():
 ```
 
 Sau đó gọi:
+
 ```bash
 curl -X POST http://localhost:8000/data/import
 ```
@@ -101,6 +112,7 @@ SELECT id, question, LEFT(content, 100) FROM document LIMIT 5;
 ### Kiểm tra Qdrant
 
 Truy cập Qdrant Dashboard:
+
 - URL: http://localhost:6333/dashboard
 - Kiểm tra collection `llm`
 - Xem số lượng vectors đã được index
@@ -138,25 +150,27 @@ CREATE TABLE document (
 
 ```json
 {
-    "question": "Trong Bộ luật Hình sự thì bao nhiêu tuổi...",
-    "content": "Người cao tuổi, người già...",
-    "source": "train",
-    "doc_id": 0
+  "question": "Trong Bộ luật Hình sự thì bao nhiêu tuổi...",
+  "content": "Người cao tuổi, người già...",
+  "source": "train",
+  "doc_id": 0
 }
 ```
 
 ## Lưu ý quan trọng
 
 1. **Backup dữ liệu**: Trước khi chạy migration, hãy backup database:
+
    ```bash
    docker exec mariadb-tiny mysqldump -u root -p demo_bot > backup.sql
    ```
 
 2. **Mount data hoặc copy file**: Đảm bảo file `train.jsonl` có thể truy cập từ container:
+
    ```bash
    # Cách 1: Copy file vào container
    docker cp /home/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System/data_pipeline/data/rag/train.jsonl chatbot-api:/usr/src/app/data/
-   
+
    # Cách 2: Mount folder trong docker-compose.yml
    volumes:
      - .:/usr/src/app/
@@ -164,6 +178,7 @@ CREATE TABLE document (
    ```
 
 3. **Memory & Performance**: File `train.jsonl` có kích thước lớn (~133MB). Import sẽ mất thời gian. Nên sử dụng `--limit` để test trước. Monitor:
+
    ```bash
    docker stats chatbot-api
    docker logs -f chatbot-api

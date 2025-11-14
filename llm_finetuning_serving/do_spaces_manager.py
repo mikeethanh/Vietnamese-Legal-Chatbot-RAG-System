@@ -11,6 +11,14 @@ from typing import Optional, List
 from botocore.exceptions import ClientError, NoCredentialsError
 from tqdm import tqdm
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("Warning: python-dotenv not installed. Environment variables from .env file will not be loaded.")
+    print("Install with: pip install python-dotenv")
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
