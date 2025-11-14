@@ -1,0 +1,36 @@
+# Vietnamese Legal LLM - Data and Model Files
+
+# =============================================================================
+# DATA FILES (stored on Digital Ocean Spaces)
+# =============================================================================
+
+# Raw data files
+data_processing/raw_data/
+data_processing/processed_llama_data.jsonl
+data_processing/sample_processed_data.json
+data_processing/data_analysis.json
+
+# Train/validation/test splits
+data_processing/splits/
+data_processing/splits/*.jsonl
+data_processing/splits/*.json
+
+# Temporary processing files
+data_processing/temp/
+data_processing/*.tmp
+data_processing/*.temp
+
+# =============================================================================
+# ENVIRONMENT AND CREDENTIALS
+# =============================================================================
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# API Keys and secrets
+*api_key*
+*secret*
+*token*
+

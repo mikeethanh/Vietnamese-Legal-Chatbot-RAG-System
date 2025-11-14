@@ -1,0 +1,21 @@
+# Core ML libraries for inference
+torch>=2.0.0
+
+# Transformers ecosystem for model loading and inference
+transformers>=4.36.0
+tokenizers>=0.15.0
+accelerate>=0.25.0
+peft>=0.7.0
+
+# Serving and API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+
+# Utilities
+requests>=2.31.0
+python-dotenv>=1.0.0
+tqdm>=4.66.0
+
+boto3>=1.34.0s
+botocore>=1.34.0s

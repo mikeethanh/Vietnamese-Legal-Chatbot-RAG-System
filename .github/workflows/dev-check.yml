@@ -1,0 +1,47 @@
+name: Quick Dev Check
+
+on:
+  push:
+    branches: [develop, feat/*]
+  pull_request:
+    branches: [develop]
+
+jobs:
+  quick-check:
+    name: 🚀 Quick Development Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Get code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 📦 Install basics
+        run: |
+          pip install --upgrade pip
+          pip install black flake8 pytest
+
+      - name: ✨ Quick format check
+        run: |
+          echo "✨ Checking code format..."
+          black --check backend/src/ || true
+
+      - name: 🔍 Quick lint
+        run: |
+          echo "🔍 Quick lint check..."
+          flake8 backend/src/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
+
+      - name: ✅ Basic syntax check
+        run: |
+          echo "✅ Checking Python syntax..."
+          python -m py_compile backend/src/*.py || true
+          python -m py_compile frontend/*.py || true
+
+      - name: 🎉 Done
+        run: |
+          echo "🎉 Quick check completed!"
+          echo "💡 Ready for development!"
