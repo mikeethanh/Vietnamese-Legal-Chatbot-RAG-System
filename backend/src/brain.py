@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import requests
 
 from openai import OpenAI
 from redis import InvalidResponse
@@ -10,6 +11,7 @@ from custom_embedding import get_custom_embedding
 logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", default=None)
+VIETNAMESE_LLM_API_URL = os.environ.get("VIETNAMESE_LLM_API_URL", default="http://3.90.175.145:6000/v1/chat/completions")
 
 
 def get_openai_client():
@@ -17,6 +19,46 @@ def get_openai_client():
 
 
 client = get_openai_client()
+
+
+def vietnamese_llm_chat_complete(messages=(), temperature=0.7, max_tokens=512):
+    """
+    Gọi Vietnamese Legal LLM API thay vì OpenAI cho việc trả lời người dùng
+    """
+    logger.info("Vietnamese LLM chat complete for {}".format(messages))
+    
+    try:
+        # Chuẩn bị payload cho API call
+        payload = {
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
+        
+        # Gọi API
+        response = requests.post(
+            VIETNAMESE_LLM_API_URL,
+            headers={"Content-Type": "application/json"},
+            json=payload,
+            timeout=120  # 2 phút timeout
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            content = result["choices"][0]["message"]["content"]
+            logger.info("Vietnamese LLM response: {}".format(content[:200] + "..."))
+            return content
+        else:
+            logger.error(f"Vietnamese LLM API error: {response.status_code} - {response.text}")
+            # Fallback to OpenAI nếu Vietnamese LLM API fail
+            logger.info("Falling back to OpenAI API")
+            return openai_chat_complete(messages)
+            
+    except Exception as e:
+        logger.error(f"Error calling Vietnamese LLM API: {e}")
+        # Fallback to OpenAI nếu có lỗi
+        logger.info("Falling back to OpenAI API due to error")
+        return openai_chat_complete(messages)
 
 
 def openai_chat_complete(messages=(), model="gpt-4o-mini", raw=False):

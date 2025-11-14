@@ -145,7 +145,7 @@ ls -la data_processing/splits/
 
 ```bash
 # SSH into EC2 instance
-ssh -i "minh.pem" ubuntu@54.87.128.17
+ssh -i "minh.pem" ubuntu@3.90.175.145
 
 # Update system
 sudo apt update && sudo apt upgrade -y
@@ -190,7 +190,7 @@ DO_SPACES_BUCKET=legal-datalake
 MODEL_PATH=/home/ubuntu/model
 MODEL_NAME=vietnamese-legal-llama-20251111_115138
 HOST=0.0.0.0
-PORT=7000
+PORT=6000
 
 ```
 
@@ -240,7 +240,7 @@ python3 serve_model_cpu.py
 # Loading model from /home/ubuntu/model for CPU inference...
 # Model loaded successfully on CPU!
 # Model parameters: 8,030,261,248
-# Starting server on 0.0.0.0:7000
+# Starting server on 0.0.0.0:6000
 
 # Alternative: For GPU serving (if using GPU instance)
 # export USE_GPU=true
@@ -253,22 +253,24 @@ python3 serve_model_cpu.py
 
 ```bash
 # Get Security Group ID
-aws ec2 describe-instances --instance-ids i-0cb01bbedb63c5a0d \
+aws ec2 describe-instances --instance-ids i-00d923cec5002b097 \
   --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId'
 
 # Add rules (thay YOUR_SG_ID)
 aws ec2 authorize-security-group-ingress \
-  --group-id sg-05658de3373a66057 \
+  --group-id sg-0904763c176fa997a \
   --protocol tcp \
-  --port 5001 \
+  --port 6000 \
   --cidr 0.0.0.0/0
 ```
 
 ### 3.7 Test API
 
+**From Linux/Mac/WSL:**
+
 ```bash
 # From another terminal or local machine
-curl -X POST http://:7000/v1/chat/completions \
+curl -X POST http://3.90.175.145:6000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [
@@ -277,20 +279,58 @@ curl -X POST http://:7000/v1/chat/completions \
     "temperature": 0.7,
     "max_tokens": 512
   }'
+```
 
-# Test health endpoint
-curl http://:7000/health
+**From Windows Command Prompt:**
+
+```cmd
+curl -X POST http://3.90.175.145:6000/v1/chat/completions -H "Content-Type: application/json" -d "{\"messages\": [{\"role\": \"user\", \"content\": \"Quy định về thời hiệu khởi kiện là gì?\"}], \"temperature\": 0.7, \"max_tokens\": 512}"
+```
+
+**From PowerShell:**
+
+```powershell
+$body = @{
+    messages = @(
+        @{
+            role = "user"
+            content = "Quy định về thời hiệu khởi kiện là gì?"
+        }
+    )
+    temperature = 0.7
+    max_tokens = 512
+} | ConvertTo-Json -Depth 10
+
+Invoke-RestMethod -Uri "http://3.90.175.145:6000/v1/chat/completions" -Method POST -Body $body -ContentType "application/json"
+```
+
+**Test health endpoint:**
+
+```bash
+# Linux/Mac/WSL
+curl http://3.90.175.145:6000/health
+
+# Windows Command Prompt
+curl http://3.90.175.145:6000/health
+
+# PowerShell
+Invoke-RestMethod -Uri "http://3.90.175.145:6000/health"
+```
+
+curl http://localhost:6000/health
 
 # Test from local Python
+
 python3 -c "
 import requests
 response = requests.post('http://your-ec2-public-ip:7000/v1/chat/completions',
-  headers={'Content-Type': 'application/json'},
-  json={'messages': [{'role': 'user', 'content': 'Quyền và nghĩa vụ của công dân là gì?'}],
-        'temperature': 0.7, 'max_tokens': 512})
+headers={'Content-Type': 'application/json'},
+json={'messages': [{'role': 'user', 'content': 'Quyền và nghĩa vụ của công dân là gì?'}],
+'temperature': 0.7, 'max_tokens': 512})
 print(response.json())
 "
-```
+
+````
 
 ### 3.7 Production Setup & Security
 
@@ -303,7 +343,7 @@ sudo ufw enable
 # Set up reverse proxy with Nginx (optional)
 sudo apt install nginx
 sudo nano /etc/nginx/sites-available/vietnamese-legal-llm
-```
+````
 
 **Nginx configuration:**
 

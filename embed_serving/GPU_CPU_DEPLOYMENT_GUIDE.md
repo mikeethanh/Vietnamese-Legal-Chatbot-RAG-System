@@ -40,7 +40,7 @@
 
 ```bash
 # Thay YOUR_KEY_PAIR.pem và EC2_PUBLIC_IP
-ssh -i "minh.pem" ubuntu@54.145.68.99
+ssh -i "minh.pem" ubuntu@54.81.181.125
 
 # Hoặc nếu sử dụng Windows với PuTTY:
 # Dùng PuTTY với private key (.ppk) để connect
@@ -178,14 +178,6 @@ docker logs -f legal-embedding-api
 # Check container status
 docker ps | grep legal-embedding-api
 ```
-
-**💡 Giải thích các options:**
-
-- `-d`: Chạy container ở background
-- `-p 5001:5000`: Map port 5001 (external) → 5000 (container)
-- `-v $(pwd)/models/bge-m3:/app/models/bge-m3`: Mount model directory
-- `-e MODEL_PATH=/app/models/bge-m3`: Chỉ định path đến model
-- `--restart unless-stopped`: Tự động restart khi EC2 instance reboot
 
 ### 3.4. Verify API is running
 

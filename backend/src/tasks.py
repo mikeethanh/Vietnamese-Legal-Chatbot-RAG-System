@@ -13,6 +13,7 @@ from brain import (
     get_embedding,
     get_financial_agent_handle,
     openai_chat_complete,
+    vietnamese_llm_chat_complete,
 )
 from configs import DEFAULT_COLLECTION_NAME
 from database import get_celery_app
@@ -166,10 +167,10 @@ QUAN TRỌNG: Chỉ sử dụng thông tin từ các tài liệu được cung c
         ]
     )
 
-    logger.info(f"Sending {len(openai_messages)} messages to OpenAI")
+    logger.info(f"Sending {len(openai_messages)} messages to Vietnamese LLM")
 
-    # Step 6: Generate answer
-    assistant_answer = openai_chat_complete(openai_messages)
+    # Step 6: Generate answer using Vietnamese Legal LLM
+    assistant_answer = vietnamese_llm_chat_complete(openai_messages)
 
     logger.info(f"Bot RAG reply generated successfully")
     return assistant_answer
@@ -259,7 +260,7 @@ def bot_route_answer_message(history, question):
             ]
         )
 
-        return openai_chat_complete(openai_messages)
+        return vietnamese_llm_chat_complete(openai_messages)
 
     else:  # general_chat
         # Handle general conversation
@@ -280,7 +281,7 @@ Bạn có thể:
             + [{"role": "user", "content": question}]
         )
 
-        return openai_chat_complete(openai_messages)
+        return vietnamese_llm_chat_complete(openai_messages)
 
 
 @shared_task()
