@@ -1,6 +1,6 @@
-# 🚀 Vietnamese Legal LLM - GPU Droplet Deployment Guide
+# 🚀 Vietnamese Legal LLM - Hybrid Cloud Deployment Guide
 
-Hướng dẫn chi tiết để finetune và serving Vietnamese Legal LLM trên Digital Ocean GPU droplets với data/model lưu trên Spaces.
+Hướng dẫn chi tiết để finetune Vietnamese Legal LLM trên Digital Ocean và serving trên AWS EC2 với data/model lưu trên Spaces.
 
 ## 🎯 Tổng quan Architecture
 
@@ -13,22 +13,24 @@ Hướng dẫn chi tiết để finetune và serving Vietnamese Legal LLM trên 
                                  │
                                  ▼
                        ┌─────────────────────┐
-                       │ Digital Ocean       │
-                       │ GPU Droplet         │
+                       │    AWS EC2          │
+                       │ GPU Instance        │
                        │ (Serving)           │
                        └─────────────────────┘
 ```
 
 ### Workflow:
-1. **Local**: Process data → Upload to Spaces
-2. **Training GPU Droplet**: Download data → Train → Upload model
-3. **Serving GPU Droplet**: Download model → Serve API
+
+1. **Local**: Process data → Upload to Digital Ocean Spaces
+2. **Training GPU Droplet (DO)**: Download data → Train → Upload model
+3. **Serving GPU Instance (AWS EC2)**: Download model → Serve API
 
 ## 🏋️ Part 2: Training on GPU Droplet
 
 ### 2.1 Create Training GPU Droplet
 
 **Recommended Configuration:**
+
 - **Image**: Ubuntu 22.04 LTS
 - **Size**: GPU-H100-80GB or GPU-H200-141GB
 - **Region**: Choose based on your location
@@ -79,15 +81,17 @@ ls -la data_processing/splits/
 ```
 
 **Training Process:**
+
 - Downloads data from Spaces automatically
 - Trains with Unsloth LoRA optimization
 - Saves model locally and uploads to Spaces
 - Takes ~4-6 hours on H200 GPU
 
 **Expected Training Output:**
+
 ```
 🚀 Training completed!
-📁 Model saved locally: finetune/outputs/final_model  
+📁 Model saved locally: finetune/outputs/final_model
 ☁️  Model uploaded to Spaces: models/vietnamese-legal-llama-20241103_142000
 ```
 
@@ -106,83 +110,155 @@ ls -la data_processing/splits/
 
 ---
 
-## 🌐 Part 3: Serving on GPU Droplet
+## 🌐 Part 3: Serving on AWS EC2
 
-### 3.1 Create Serving GPU Droplet
+### 3.1 Create AWS EC2 GPU Instance
 
-**Recommended Configuration:**
-- **Image**: Ubuntu 22.04 LTS  
-- **Size**: GPU-H100-80GB (can be smaller than training)
-- **Region**: Same as training droplet
-- **Add your SSH key**
+**Recommended Instance Types:**
 
-### 3.2 Setup Serving Environment
+- **For Production**: `g5.xlarge` (1 GPU, 4 vCPUs, 16GB RAM) - ~$1.006/hour
+- **For High Performance**: `g5.2xlarge` (1 GPU, 8 vCPUs, 32GB RAM) - ~$2.013/hour
+- **For Cost-Effective**: `g4dn.xlarge` (1 GPU, 4 vCPUs, 16GB RAM) - ~$0.526/hour
+- **For Heavy Workloads**: `p3.2xlarge` (1 V100 GPU, 8 vCPUs, 61GB RAM) - ~$3.06/hour
+
+**Launch Configuration:**
+
+1. **AMI**: Deep Learning AMI GPU PyTorch 2.1.0 (Ubuntu 22.04)
+2. **Instance Type**: g5.xlarge (recommended for serving)
+3. **Key Pair**: Select your existing key pair or create new one
+4. **Security Group**: Allow SSH (22), HTTP (80), HTTPS (443), Custom (7000)
+5. **Storage**: 100GB gp3 SSD minimum
+6. **Region**: Choose based on your target audience (us-east-1 recommended)
+
+### 3.2 Setup EC2 Instance
 
 ```bash
-# SSH into serving droplet
-ssh root@your-serving-droplet-ip
+# SSH into EC2 instance
+ssh -i "minh.pem" ubuntu@44.192.45.144
 
-# Install NVIDIA drivers and Docker (same as training setup)
-# ... (repeat steps from 2.2)
+# Update system
+sudo apt update && sudo apt upgrade -y
 
-# Clone repository  
+# Install additional dependencies
+sudo apt install -y python3-pip python3-venv git htop tree
+
+# Clone repository
 git clone https://github.com/mikeethanh/Vietnamese-Legal-Chatbot-RAG-System.git
 cd Vietnamese-Legal-Chatbot-RAG-System/llm_finetuning_serving
 
-# Setup environment
-apt install python3-pip
-
+# Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
+
+# Install requirements
+pip install --upgrade pip
 pip install -r requirements_serving.txt
 
-# Configure for serving
-cp .env.template .env
-nano .env
-# Edit .env with Spaces credentials and model name
+# Install additional AWS-specific packages
+pip install boto3 awscli
 ```
 
-### 3.3 Configure Serving Environment
+### 3.3 Configure AWS Credentials & Environment
 
 ```bash
-# .env for serving
+# Configure Digital Ocean Spaces for model download
+cp .env.template .env
+nano .env
+```
+
+**Edit `.env` file:**
+
+```bash
+# Digital Ocean Spaces configuration
 DO_SPACES_KEY=your_spaces_key
 DO_SPACES_SECRET=your_spaces_secret
 DO_SPACES_ENDPOINT=https://sfo3.digitaloceanspaces.com
 DO_SPACES_BUCKET=legal-datalake
 
 # Model configuration
-MODEL_PATH=/app/model
-MODEL_NAME=vietnamese-legal-llama-20251111_115138  
+MODEL_PATH=/home/ubuntu/model
+MODEL_NAME=vietnamese-legal-llama-20251111_115138
 HOST=0.0.0.0
 PORT=7000
+
 ```
 
 ### 3.4 Download Model and Start Serving
 
 ```bash
-# Download specific model
-./run_pipeline.sh download-model vietnamese-legal-llama-20251111_115138 ./model
+# Create model directory
+mkdir -p /home/ubuntu/model
 
+# Download specific model from Digital Ocean Spaces
+./run_pipeline.sh download-model vietnamese-legal-llama-20251111_115138 /home/ubuntu/model
 
 # Verify model download
-ls -la model/
+ls -la /home/ubuntu/model/
+
+# Set up serving environment
+cd serving
+export MODEL_PATH="/home/ubuntu/model"
+export CUDA_VISIBLE_DEVICES=0
+
+# Test GPU availability in Python
+python3 -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'GPU count: {torch.cuda.device_count()}')"
 
 # Start serving
-cd serving
-export MODEL_PATH="../model"
 python3 serve_model.py
 
-# Should see:
-# Model loaded successfully
+# Expected output:
+# Loading model from /home/ubuntu/model...
+# Model loaded successfully on GPU
 # Server running on http://0.0.0.0:7000
 ```
 
-### 3.5 Test API
+### 3.5 Configure Auto-Start Service (Optional)
+
+```bash
+# Create systemd service for auto-start
+sudo nano /etc/systemd/system/vietnamese-legal-llm.service
+```
+
+**Service file content:**
+
+```ini
+[Unit]
+Description=Vietnamese Legal LLM Serving Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Vietnamese-Legal-Chatbot-RAG-System/llm_finetuning_serving/serving
+Environment=MODEL_PATH=/home/ubuntu/model
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=PATH=/home/ubuntu/Vietnamese-Legal-Chatbot-RAG-System/llm_finetuning_serving/venv/bin:/usr/bin:/bin
+ExecStart=/home/ubuntu/Vietnamese-Legal-Chatbot-RAG-System/llm_finetuning_serving/venv/bin/python3 serve_model.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Enable and start service
+sudo systemctl daemon-reload
+sudo systemctl enable vietnamese-legal-llm
+sudo systemctl start vietnamese-legal-llm
+
+# Check service status
+sudo systemctl status vietnamese-legal-llm
+
+# View logs
+sudo journalctl -u vietnamese-legal-llm -f
+```
+
+### 3.6 Test API
 
 ```bash
 # From another terminal or local machine
-curl -X POST http://162.243.95.138:8000/v1/chat/completions \
+curl -X POST http://your-ec2-public-ip:7000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [
@@ -192,8 +268,58 @@ curl -X POST http://162.243.95.138:8000/v1/chat/completions \
     "max_tokens": 512
   }'
 
-# Test health
-curl http://your-serving-droplet-ip:7000/health
+# Test health endpoint
+curl http://your-ec2-public-ip:7000/health
+
+# Test from local Python
+python3 -c "
+import requests
+response = requests.post('http://your-ec2-public-ip:7000/v1/chat/completions',
+  headers={'Content-Type': 'application/json'},
+  json={'messages': [{'role': 'user', 'content': 'Quyền và nghĩa vụ của công dân là gì?'}],
+        'temperature': 0.7, 'max_tokens': 512})
+print(response.json())
+"
+```
+
+### 3.7 Production Setup & Security
+
+```bash
+# Configure firewall
+sudo ufw allow ssh
+sudo ufw allow 7000
+sudo ufw enable
+
+# Set up reverse proxy with Nginx (optional)
+sudo apt install nginx
+sudo nano /etc/nginx/sites-available/vietnamese-legal-llm
+```
+
+**Nginx configuration:**
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:7000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+```bash
+# Enable site
+sudo ln -s /etc/nginx/sites-available/vietnamese-legal-llm /etc/nginx/sites-enabled/
+sudo systemctl restart nginx
+
+# Optional: Install SSL certificate with Let's Encrypt
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
 ```
 
 ---
@@ -273,99 +399,194 @@ curl http://your-droplet-ip:8000/health
 
 ### Common Issues
 
-**1. CUDA Out of Memory**
+**1. CUDA Out of Memory (EC2)**
+
 ```bash
-# Reduce batch size in training config
+# Check GPU memory usage
+nvidia-smi
+# Reduce batch size or model precision
 export CUDA_VISIBLE_DEVICES=0
-# Edit train_llama.py: per_device_train_batch_size=1
+# Consider 4-bit quantization
+# load_in_4bit=True in serving config
+# Restart instance if needed
+sudo reboot
 ```
 
 **2. Model Download Failed**
+
 ```bash
-# Check Spaces credentials
+# Check Digital Ocean Spaces credentials
 python do_spaces_manager.py list models/
-# Verify network connectivity
+# Verify network connectivity from EC2
+ping sfo3.digitaloceanspaces.com
+# Check IAM permissions if using S3
+aws s3 ls
 ```
 
-**3. Slow Serving Response**
+**3. EC2 Instance Issues**
+
 ```bash
-# Check GPU utilization
+# Check instance status
+aws ec2 describe-instance-status --instance-ids i-1234567890abcdef0
+# Check system logs
+sudo dmesg | tail -50
+# Check disk space
+df -h
+# Check memory usage
+free -h
+```
+
+**4. GPU Driver Issues**
+
+```bash
+# Verify GPU is detected
+lspci | grep -i nvidia
+# Check driver version
 nvidia-smi
-# Consider 4-bit quantization
-# load_in_4bit=True in serving config
+# Reinstall drivers if needed (if not using Deep Learning AMI)
+sudo apt purge nvidia-*
+sudo apt autoremove
 ```
 
-**4. API Connection Issues**
+**5. API Connection Issues**
+
 ```bash
-# Check firewall
-ufw allow 8000
+# Check EC2 security groups
+aws ec2 describe-security-groups --group-ids sg-xxxxxxxxx
 # Check service status
-netstat -tlnp | grep 8000
+sudo systemctl status vietnamese-legal-llm
+# Check port binding
+sudo netstat -tlnp | grep 7000
+# Test local connectivity
+curl localhost:7000/health
+```
+
+**6. Performance Optimization**
+
+```bash
+# Monitor GPU utilization
+watch -n1 nvidia-smi
+# Monitor system resources
+htop
+# Scale up instance type if needed
+# Use multiple instances with load balancer
 ```
 
 ---
 
 ## 💰 Cost Optimization
 
-### GPU Droplet Management
+### Hybrid Cloud Cost Management
 
-**Training Strategy:**
+**Training Strategy (Digital Ocean):**
+
 - Create H200 droplet for training only
 - Destroy after model upload
 - Estimated cost: $10-20 for 6-hour training session
 
-**Serving Strategy:**
-- Use smaller GPU (H100-80GB) for serving
-- Keep running 24/7 for production
-- Estimated cost: $200-400/month
+**Serving Strategy (AWS EC2):**
 
-**Cost-Saving Tips:**
-- Use Droplet snapshots for quick setup
-- Schedule training during off-peak hours
-- Use preemptible instances if available
-- Monitor and scale based on usage
+- **g4dn.xlarge**: ~$380/month (cost-effective option)
+- **g5.xlarge**: ~$720/month (balanced performance)
+- **g5.2xlarge**: ~$1,440/month (high performance)
+- Use Spot Instances for 60-90% cost savings (non-critical workloads)
+
+**AWS Cost-Saving Tips:**
+
+- Use Spot Instances for development/testing
+- Schedule instances with Lambda/CloudWatch for auto start/stop
+- Use Reserved Instances for 1-year+ commitments (save 30-60%)
+- Monitor GPU utilization with CloudWatch
+- Use Auto Scaling Groups for dynamic scaling
+- Store models in S3 with Intelligent Tiering
+- Use Application Load Balancer for multiple instances
+
+**Estimated Monthly Costs:**
+
+- **Development**: g4dn.xlarge Spot ~ $80-150/month
+- **Production**: g5.xlarge Reserved ~ $400-500/month
+- **Enterprise**: g5.2xlarge with Load Balancer ~ $1,500-2,000/month
 
 ---
 
 ## 🎯 Success Checklist
 
 ### Training Completion ✅
-- [ ] Data uploaded to Spaces
+
+- [ ] Data uploaded to Digital Ocean Spaces
 - [ ] GPU droplet created and configured
 - [ ] Model trained successfully (4-6 hours)
 - [ ] Model uploaded to Spaces
 - [ ] Training droplet destroyed (cost saving)
 
-### Serving Setup ✅
-- [ ] Serving GPU droplet created
-- [ ] Model downloaded from Spaces
-- [ ] API server running
+### AWS EC2 Serving Setup ✅
+
+- [ ] EC2 GPU instance launched (g5.xlarge recommended)
+- [ ] Deep Learning AMI configured
+- [ ] Security groups configured (SSH, port 7000)
+- [ ] Model downloaded from Spaces to EC2
+- [ ] GPU drivers and CUDA working
+- [ ] API server running on EC2
 - [ ] Health checks passing
-- [ ] API responses working
+- [ ] API responses working from public IP
 
 ### Production Ready ✅
+
+- [ ] Systemd service configured for auto-start
+- [ ] Nginx reverse proxy setup (optional)
 - [ ] Domain name configured
-- [ ] SSL certificate installed
-- [ ] Load balancer setup (if needed)
-- [ ] Monitoring and alerts configured
+- [ ] SSL certificate installed (Let's Encrypt)
+- [ ] CloudWatch monitoring enabled
+- [ ] Auto Scaling Group configured (if needed)
 - [ ] Backup and disaster recovery plan
+- [ ] Cost monitoring and alerts configured
 
 ---
 
 ## 📚 Additional Resources
 
+**Digital Ocean (Training):**
+
 - [Digital Ocean GPU Droplets Documentation](https://docs.digitalocean.com/products/droplets/how-to/create-gpu-droplets/)
 - [Digital Ocean Spaces Documentation](https://docs.digitalocean.com/products/spaces/)
+
+**AWS EC2 (Serving):**
+
+- [AWS EC2 GPU Instances Documentation](https://docs.aws.amazon.com/ec2/latest/userguide/accelerated-computing-instances.html)
+- [AWS Deep Learning AMI Documentation](https://docs.aws.amazon.com/dlami/latest/devguide/what-is-dlami.html)
+- [AWS Auto Scaling Documentation](https://docs.aws.amazon.com/autoscaling/ec2/userguide/what-is-amazon-ec2-auto-scaling.html)
+- [AWS Application Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html)
+- [AWS CloudWatch Monitoring](https://docs.aws.amazon.com/cloudwatch/latest/monitoring/)
+
+**Model & Frameworks:**
+
 - [Unsloth Documentation](https://github.com/unslothai/unsloth)
 - [Llama-3.1 Model Documentation](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct)
+- [PyTorch GPU Documentation](https://pytorch.org/get-started/locally/)
 
 ---
 
 ## 📞 Support
 
-For issues specific to this deployment:
+For issues specific to this hybrid deployment:
+
+**Training Issues (Digital Ocean):**
+
 - Check GPU droplet logs: `journalctl -u your-service`
 - Monitor Spaces usage: Digital Ocean console
-- GPU debugging: `nvidia-smi`, `nvidia-debugdump`
 
-**🎉 Congratulations! You now have a fully deployed Vietnamese Legal LLM system on Digital Ocean! 🇻🇳⚖️🤖**
+**Serving Issues (AWS EC2):**
+
+- Check service logs: `sudo journalctl -u vietnamese-legal-llm -f`
+- Monitor EC2 metrics: AWS CloudWatch console
+- GPU debugging: `nvidia-smi`, `watch -n1 nvidia-smi`
+- Instance debugging: `htop`, `df -h`, `free -h`
+
+**Common AWS EC2 Troubleshooting:**
+
+- Security group configuration
+- EC2 instance status checks
+- EBS volume space issues
+- GPU driver compatibility
+
+**🎉 Congratulations! You now have a fully deployed Vietnamese Legal LLM system with hybrid cloud architecture - Training on Digital Ocean and Serving on AWS EC2! 🇻🇳⚖️🤖**

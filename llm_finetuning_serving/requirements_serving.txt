@@ -17,5 +17,5 @@ requests>=2.31.0
 python-dotenv>=1.0.0
 tqdm>=4.66.0
 
-boto3>=1.34.0s
-botocore>=1.34.0s
+boto3>=1.34.0
+botocore>=1.34.0
