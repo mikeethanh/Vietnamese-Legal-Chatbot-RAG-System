@@ -236,6 +236,7 @@ pip install python-dotenv accelerate
 
 python3 serve_model_cpu.py
 
+python.exe do_spaces_manager.py download-model vietnamese-legal-llama-20251111_115138
 # Expected output:
 # Loading model from /home/ubuntu/model for CPU inference...
 # Model loaded successfully on CPU!

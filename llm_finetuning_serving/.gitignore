@@ -3,7 +3,7 @@
 # =============================================================================
 # DATA FILES (stored on Digital Ocean Spaces)
 # =============================================================================
-
+/model
 # Raw data files
 data_processing/raw_data/
 data_processing/processed_llama_data.jsonl
