@@ -145,7 +145,7 @@ ls -la data_processing/splits/
 
 ```bash
 # SSH into EC2 instance
-ssh -i "minh.pem" ubuntu@3.90.175.145
+ssh -i "minh.pem" ubuntu@98.92.12.212
 
 # Update system
 sudo apt update && sudo apt upgrade -y

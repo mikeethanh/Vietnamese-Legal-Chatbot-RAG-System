@@ -40,7 +40,7 @@
 
 ```bash
 # Thay YOUR_KEY_PAIR.pem và EC2_PUBLIC_IP
-ssh -i "minh.pem" ubuntu@54.81.181.125
+ssh -i "minh.pem" ubuntu@52.87.176.35
 
 # Hoặc nếu sử dụng Windows với PuTTY:
 # Dùng PuTTY với private key (.ppk) để connect
@@ -214,12 +214,12 @@ curl -X POST http://54.145.68.99:5001/embed \
 
 ```bash
 # Get Security Group ID
-aws ec2 describe-instances --instance-ids i-0cb01bbedb63c5a0d \
+aws ec2 describe-instances --instance-ids i-0767899a6c0bbaad0 \
   --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId'
 
 # Add rules (thay YOUR_SG_ID)
 aws ec2 authorize-security-group-ingress \
-  --group-id sg-05658de3373a66057 \
+  --group-id sg-0ef2ee0e005df9b55 \
   --protocol tcp \
   --port 5001 \
   --cidr 0.0.0.0/0
@@ -234,7 +234,7 @@ aws ec2 authorize-security-group-ingress \
 export EC2_IP="EC2_PUBLIC_IP"
 
 # Test 1: Health check
-curl http://54.145.68.99:5001/health
+curl http://52.87.176.35:5001/health
 
 # Test 2: Generate embeddings
 curl -X POST http://$EC2_IP:5001/embed \
