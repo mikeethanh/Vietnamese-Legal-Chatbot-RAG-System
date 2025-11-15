@@ -25,7 +25,7 @@ Retrieval-augmented generation (RAG) systems combine generative AI with informat
 
 ## II. System Architecture
 
-![System Architecture](asset%20/architecture_template.drawio.svg)
+![System Architecture](asset/architecture_template.drawio.svg)
 
 
 **(Video demonstration of system overview will be provided)**
