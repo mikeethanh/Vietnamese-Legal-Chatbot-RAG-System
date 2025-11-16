@@ -9,7 +9,6 @@ from qdrant_client.models import (
     MatchValue,
     PointStruct,
     Range,
-    SearchRequest,
     VectorParams,
 )
 

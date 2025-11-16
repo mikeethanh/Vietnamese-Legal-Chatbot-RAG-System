@@ -40,7 +40,7 @@ def vietnamese_llm_chat_complete(messages=(), temperature=0.7, max_tokens=512):
             VIETNAMESE_LLM_API_URL,
             headers={"Content-Type": "application/json"},
             json=payload,
-            timeout=120  # 2 phút timeout
+            timeout=300  # 5 phút timeout
         )
         
         if response.status_code == 200:

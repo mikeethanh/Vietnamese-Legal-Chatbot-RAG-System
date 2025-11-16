@@ -11,7 +11,6 @@ from brain import (
     detect_user_intent,
     gen_doc_prompt,
     get_embedding,
-    get_financial_agent_handle,
     openai_chat_complete,
     vietnamese_llm_chat_complete,
 )
@@ -260,7 +259,7 @@ def bot_route_answer_message(history, question):
             ]
         )
 
-        return vietnamese_llm_chat_complete(openai_messages)
+        return openai_chat_complete(openai_messages)
 
     else:  # general_chat
         # Handle general conversation
