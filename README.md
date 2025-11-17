@@ -10,7 +10,7 @@ A comprehensive Vietnamese legal consultation chatbot system built with RAG (Ret
 - [IV. Technology Stack](#iv-technology-stack)
 - [V. Quick Start Guide](#v-quick-start-guide)
 - [VI. Data Pipeline Setup](#vi-data-pipeline-setup)
-- [VII. Advanced Configuration](#vii-advanced-configuration)
+- [VII. Model Training & Evaluation](#vii-model-training--evaluation)
 - [VIII. Production Deployment](#viii-production-deployment)
 - [IX. Testing and Quality Assurance](#ix-testing-and-quality-assurance)
 - [X. Development Guide](#x-development-guide)
@@ -311,12 +311,44 @@ jupyter notebook utils/process_finetune_data.ipynb
 python scripts/validate_data.py
 ```
 
-### 2. Data Statistics
+### 2. Data Storage
+
+Data is stored in DigitalOcean Spaces for efficient access and scalability:
+
+![Data Storage](asset/data_store.png)
+
+### 3. Data Statistics
 - **Legal Corpus**: 1.9M+ Vietnamese legal documents
 - **Training Data**: 225K+ high-quality Q&A pairs  
 - **Fine-tuning Sets**: 3 specialized datasets
 - **Coverage**: Complete coverage of major legal domains
 
+
+## VII. Model Training & Evaluation
+
+### 1. Training Configuration
+
+The model is trained with optimized hyperparameters for Vietnamese legal text:
+
+![Training Configuration](asset/config_training.png)
+
+### 2. Training Metrics
+
+Monitoring training progress with Weights & Biases:
+
+![Training Metrics](asset/metrics_train.png)
+
+### 3. Evaluation Results
+
+Comprehensive evaluation on legal Q&A tasks:
+
+![Evaluation Results](asset/evaluation.png)
+
+### 4. Embedding Model Verification
+
+Verifying that the embedding model is serving correctly:
+
+![Embedding Check](asset/check_embedding.png)
 
 ## VIII. Production Deployment
 
