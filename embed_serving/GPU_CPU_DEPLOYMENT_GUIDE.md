@@ -40,7 +40,7 @@
 
 ```bash
 # Thay YOUR_KEY_PAIR.pem và EC2_PUBLIC_IP
-ssh -i "minh.pem" ubuntu@52.87.176.35
+ssh -i "minh.pem" ubuntu@3.80.119.178
 
 # Hoặc nếu sử dụng Windows với PuTTY:
 # Dùng PuTTY với private key (.ppk) để connect
@@ -185,14 +185,14 @@ docker ps | grep legal-embedding-api
 
 ```bash
 # Test từ trong EC2 instance
-curl http://localhost:5001/health
+curl http://3.80.119.178:5001/health
 ```
 
 **Test 2: Embedding endpoint**
 
 ```bash
 # Test tạo embeddings
-curl -X POST http://54.145.68.99:5001/embed \
+curl -X POST http://3.80.119.178:5001/embed \
   -H "Content-Type: application/json" \
   -d '{
     "texts": ["Luật Dân sự năm 2015"]
@@ -214,12 +214,12 @@ curl -X POST http://54.145.68.99:5001/embed \
 
 ```bash
 # Get Security Group ID
-aws ec2 describe-instances --instance-ids i-0767899a6c0bbaad0 \
+aws ec2 describe-instances --instance-ids i-0f6c8508425fb4fe3 \
   --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId'
 
 # Add rules (thay YOUR_SG_ID)
 aws ec2 authorize-security-group-ingress \
-  --group-id sg-0ef2ee0e005df9b55 \
+  --group-id sg-0eb4854fce9463455 \
   --protocol tcp \
   --port 5001 \
   --cidr 0.0.0.0/0
@@ -245,4 +245,3 @@ curl -X POST http://$EC2_IP:5001/embed \
 ```
 
 ---
-

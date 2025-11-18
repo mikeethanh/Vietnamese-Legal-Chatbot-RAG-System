@@ -145,7 +145,7 @@ ls -la data_processing/splits/
 
 ```bash
 # SSH into EC2 instance
-ssh -i "minh.pem" ubuntu@98.92.12.212
+ssh -i "minh.pem" ubuntu@3.89.75.45
 
 # Update system
 sudo apt update && sudo apt upgrade -y
@@ -254,12 +254,12 @@ python.exe do_spaces_manager.py download-model vietnamese-legal-llama-20251111_1
 
 ```bash
 # Get Security Group ID
-aws ec2 describe-instances --instance-ids i-00d923cec5002b097 \
+aws ec2 describe-instances --instance-ids i-04bfa9643df64c40d \
   --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId'
 
 # Add rules (thay YOUR_SG_ID)
 aws ec2 authorize-security-group-ingress \
-  --group-id sg-0904763c176fa997a \
+  --group-id sg-066b6004908ea401a \
   --protocol tcp \
   --port 6000 \
   --cidr 0.0.0.0/0
@@ -285,7 +285,7 @@ curl -X POST http://3.90.175.145:6000/v1/chat/completions \
 **From Windows Command Prompt:**
 
 ```cmd
-curl -X POST http://3.90.175.145:6000/v1/chat/completions -H "Content-Type: application/json" -d "{\"messages\": [{\"role\": \"user\", \"content\": \"Quy định về thời hiệu khởi kiện là gì?\"}], \"temperature\": 0.7, \"max_tokens\": 512}"
+curl -X POST http://3.89.75.45:6000/v1/chat/completions -H "Content-Type: application/json" -d "{\"messages\": [{\"role\": \"user\", \"content\": \"Quy định về thời hiệu khởi kiện là gì?\"}], \"temperature\": 0.7, \"max_tokens\": 512}"
 ```
 
 **From PowerShell:**
@@ -309,10 +309,10 @@ Invoke-RestMethod -Uri "http://3.90.175.145:6000/v1/chat/completions" -Method PO
 
 ```bash
 # Linux/Mac/WSL
-curl http://3.90.175.145:6000/health
+curl http://3.89.75.45:6000/health
 
 # Windows Command Prompt
-curl http://3.90.175.145:6000/health
+curl http://localhost:6000/health
 
 # PowerShell
 Invoke-RestMethod -Uri "http://3.90.175.145:6000/health"

@@ -11,7 +11,7 @@ from custom_embedding import get_custom_embedding
 logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", default=None)
-VIETNAMESE_LLM_API_URL = os.environ.get("VIETNAMESE_LLM_API_URL", default="http://3.90.175.145:6000/v1/chat/completions")
+VIETNAMESE_LLM_API_URL = os.environ.get("VIETNAMESE_LLM_API_URL", default="http://http://3.89.75.45:6000/v1/chat/completions")
 
 
 def get_openai_client():

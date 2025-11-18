@@ -286,24 +286,100 @@ class ChatApp:
         headers = {"Content-Type": "application/json"}
         
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            response = requests.post(url, json=payload, headers=headers, timeout=300)
             if response.status_code != 200:
+                logger.error(f"send_user_request non-200 status: {response.status_code} body: {response.text}")
                 raise requests.RequestException(f"Request failed: {response.text}")
-            return response.json()
+            try:
+                resp_json = response.json()
+            except ValueError:
+                logger.error(f"send_user_request invalid JSON response: {response.text}")
+                raise requests.RequestException("Invalid JSON response from server")
+            return resp_json
         except requests.RequestException as e:
-            logger.error(f"Error sending request: {e}")
+            logger.error(f"Error getting response: {e}")
             raise
 
-    @retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=1, min=4, max=20))
+    def display_formatted_content(self, content: str):
+        """Display content with forced formatting using container and multiple elements"""
+        import re
+        
+        # Split content by numbered patterns
+        parts = re.split(r'(\d+\.)', content)
+        
+        if len(parts) <= 1:
+            # No numbered list found, display as is
+            st.text(content)
+            return
+            
+        # Use container for better control
+        with st.container():
+            # Display introduction text (if any)
+            if parts[0].strip():
+                st.text(parts[0].strip())
+                st.text("")  # Empty line
+                
+            # Process numbered items
+            for i in range(1, len(parts), 2):
+                if i + 1 < len(parts):
+                    number = parts[i]  # "1.", "2.", etc
+                    text = parts[i + 1].strip()  # corresponding text
+                    
+                    if text:
+                        # Display each numbered item on separate lines
+                        st.text(f"{number} {text}")
+                        st.text("")  # Empty line for spacing
+
+    def format_content_for_display(self, content: str) -> str:
+        """Format content for proper display with forced line breaks"""
+        if not content:
+            return content
+            
+        import re
+        
+        # Force line breaks by adding double newlines and spaces
+        # Split by numbered patterns and rejoin with forced spacing
+        parts = re.split(r'(\d+\.)', content)
+        
+        if len(parts) <= 1:
+            # No numbered list found, return as is
+            return content
+            
+        formatted_parts = []
+        for i, part in enumerate(parts):
+            if re.match(r'^\d+\.$', part):  # This is a number like "1."
+                if i > 0:  # Add line breaks before each numbered item (except first)
+                    formatted_parts.append('\n\n')
+                formatted_parts.append(f"**{part}**")
+            else:
+                # This is the text content, trim whitespace
+                cleaned_part = part.strip()
+                if cleaned_part:
+                    formatted_parts.append(f" {cleaned_part}")
+        
+        result = ''.join(formatted_parts)
+        
+        # Additional formatting - ensure each numbered item is on its own line
+        result = re.sub(r'(\d+\.\*\*)\s+', r'\1 ', result)
+        
+        return result
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=20))
     def get_bot_response(self, request_id: str) -> tuple[int, Dict[str, Any]]:
         """Get bot response from the API"""
         url = f"{API_BASE_URL}/chat/complete/{request_id}"
         
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, timeout=300)
             if response.status_code != 200:
+                logger.error(f"get_bot_response non-200 status: {response.status_code} body: {response.text}")
                 raise requests.RequestException(f"Get response failed: {response.text}")
-            return response.status_code, response.json()
+            try:
+                resp_json = response.json()
+            except ValueError:
+                logger.error(f"get_bot_response invalid JSON response: {response.text}")
+                raise requests.RequestException("Invalid JSON response from server")
+            return response.status_code, resp_json
         except requests.RequestException as e:
             logger.error(f"Error getting response: {e}")
             raise
@@ -312,14 +388,48 @@ class ChatApp:
         """Complete chat interaction"""
         try:
             user_request = self.send_user_request(text)
-            request_id = user_request["task_id"]
+            # Validate user_request
+            if not user_request or not isinstance(user_request, dict) or "task_id" not in user_request:
+                logger.error(f"Invalid user_request response: {user_request}")
+                raise Exception("Server không trả về task id. Vui lòng thử lại.")
+
+            request_id = user_request.get("task_id")
             status_code, chat_response = self.get_bot_response(request_id)
+
+            # Validate chat_response
+            if status_code != 200 or not chat_response or not isinstance(chat_response, dict):
+                logger.error(f"Invalid chat_response: status={status_code}, body={chat_response}")
+                raise Exception("Server không trả về kết quả hợp lệ. Vui lòng thử lại.")
+
+            # Check if task is still processing
+            task_result = chat_response.get("task_result")
+            task_status = chat_response.get("task_status", "UNKNOWN")
             
-            if status_code == 200:
-                logger.info("Chat response received successfully")
-                return chat_response["task_result"]["content"]
-            else:
-                raise Exception("Request failed, please try again")
+            # If task is still processing, raise exception to trigger retry
+            if task_status in ["PENDING", "STARTED", "RETRY"] or task_result is None:
+                logger.info(f"Task still processing: status={task_status}, retrying...")
+                raise requests.RequestException(f"Task still processing: {task_status}")
+
+            # Handle different response formats
+            content = None
+            if isinstance(task_result, dict):
+                # Format: {"role": "assistant", "content": "..."}
+                content = task_result.get("content")
+            elif isinstance(task_result, str):
+                # Format: direct string content
+                content = task_result
+            
+            if not content:
+                logger.error(f"No content found in task_result: {task_result}")
+                raise Exception("Nội dung trả về rỗng. Vui lòng thử lại.")
+
+            # Process content to ensure proper markdown formatting
+            content = self.format_content_for_display(content)
+            
+            logger.info("Chat response received successfully")
+            return content
+            
+        
                 
         except Exception as e:
             logger.error(f"Chat completion error: {e}")
@@ -331,6 +441,10 @@ class ChatApp:
             st.session_state.current_typing = True
             res = self.get_chat_complete(user_message)
             st.session_state.current_typing = False
+            
+            # Ensure proper line breaks and formatting are preserved
+            # Convert various line break formats to markdown-friendly format
+            res = res.replace('\r\n', '\n').replace('\r', '\n')
             
             # Stream the response word by word for better UX
             words = res.split()
@@ -503,7 +617,12 @@ class ChatApp:
         for i, message in enumerate(st.session_state.messages):
             timestamp = message.get("timestamp", "")
             with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+                if message["role"] == "assistant":
+                    # Use formatted display for assistant messages
+                    self.display_formatted_content(message["content"])
+                else:
+                    # Regular display for user messages
+                    st.write(message["content"])
                 if timestamp:
                     st.caption(f"🕐 {timestamp}")
         
@@ -532,14 +651,17 @@ class ChatApp:
             # Display assistant response
             with st.chat_message("assistant"):
                 try:
-                    response = st.write_stream(self.response_generator(prompt))
+                    # Get complete response first
+                    complete_response = self.get_chat_complete(prompt)
+                    # Split and display each numbered item separately
+                    self.display_formatted_content(complete_response)
                     response_timestamp = datetime.datetime.now().strftime("%H:%M - %d/%m/%Y")
                     st.caption(f"🕐 {response_timestamp}")
                     
                     # Add assistant response to chat history
                     assistant_message = {
                         "role": "assistant", 
-                        "content": response,
+                        "content": complete_response,
                         "timestamp": response_timestamp
                     }
                     st.session_state.messages.append(assistant_message)
