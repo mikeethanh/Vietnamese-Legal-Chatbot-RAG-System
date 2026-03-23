@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  vietnamese-legal-llm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: vietnamese-legal-llm
+    restart: unless-stopped
+    
+    # GPU access
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # Environment variables
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - MODEL_PATH=/app/model
+      - HOST=0.0.0.0
+      - PORT=6000
+      - WORKERS=1
+      
+      # Optional: Weights & Biases
+      - WANDB_API_KEY=${WANDB_API_KEY}
+      
+      # Optional: OpenAI for evaluation
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # Optional: Hugging Face
+      - HF_TOKEN=${HF_TOKEN}
+      
+      # Optional: Digital Ocean Spaces
+      - DO_SPACES_KEY=${DO_SPACES_KEY}
+      - DO_SPACES_SECRET=${DO_SPACES_SECRET}
+      - DO_SPACES_ENDPOINT=${DO_SPACES_ENDPOINT}
+      - DO_SPACES_BUCKET=${DO_SPACES_BUCKET}
+    
+    # Volumes
+    volumes:
+      - ./model:/app/model
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+      
+    # Ports
+    ports:
+      - "6000:6000"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Networks
+networks:
+  default:
+    name: vietnamese-legal-network
+
+# Volumes
+volumes:
+  model_data:
+    driver: local
+  app_logs:
+    driver: local

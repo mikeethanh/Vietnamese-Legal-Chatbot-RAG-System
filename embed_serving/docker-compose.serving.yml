@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  embedding-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu-serving
+    container_name: legal-embedding-api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./models:/app/models
+      - ./logs:/app/logs
+    env_file:
+      - .env.serving
+    environment:
+      - MODEL_PATH=/app/models
+      - API_HOST=0.0.0.0
+      - API_PORT=5000
+      - DEBUG=false
+      - MAX_BATCH_SIZE=32
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

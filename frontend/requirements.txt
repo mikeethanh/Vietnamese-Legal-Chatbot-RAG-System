@@ -1,0 +1,8 @@
+tenacity
+streamlit==1.36.0
+requests==2.32.3
+pandas>=1.5.0
+plotly>=5.10.0
+streamlit-option-menu>=0.3.6
+streamlit-chat>=0.1.1
+streamlit-extras>=0.3.0

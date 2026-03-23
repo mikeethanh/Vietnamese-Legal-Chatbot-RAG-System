@@ -1,0 +1,52 @@
+groups:
+  - name: legal_chatbot_alerts
+    rules:
+      # Alert khi CPU cao
+      - alert: HighCpuUsage
+        expr: 100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% for more than 5 minutes"
+
+      # Alert khi memory cao
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 85% for more than 5 minutes"
+
+      # Alert khi disk đầy
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space is running low"
+          description: "Disk usage is above 90% for more than 5 minutes"
+
+      # Alert khi backend API down
+      - alert: BackendAPIDown
+        expr: up{job="legal-chatbot-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend API is down"
+          description: "Legal Chatbot Backend API is not responding"
+
+      # Alert khi container restart nhiều
+      - alert: ContainerRestartHigh
+        expr: rate(container_start_time_seconds[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container restarting frequently"
+          description: "Container {{ $labels.name }} is restarting frequently"
